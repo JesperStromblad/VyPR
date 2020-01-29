@@ -603,9 +603,6 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
 
 
 
-        #for test_function in test_class_body:
-
-
 
 
 """
@@ -1012,9 +1009,9 @@ if __name__ == "__main__":
 
                         point = element[bind_variable_index]
 
-                        instrument = "%s((\"%s\", \"trigger\", \"%s\", %i, %i, \"%s\"))" % \
+                        instrument = "%s((\"%s\", \"trigger\", \"%s\", %i, %i))" % \
                                      (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, m,
-                                      bind_variable_index, TEST_AWARE)
+                                      bind_variable_index)
 
                         instrument_ast = ast.parse(instrument).body[0]
                         if type(point) is CFGVertex:
@@ -1276,9 +1273,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
+                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id, TEST_AWARE)
+                                branching_condition_id)
                             instrument_ast = ast.parse(instrument_code).body[0]
                             """instrument_ast.lineno = vertex_information[1]._parent_body[0].lineno
                             instrument_ast.col_offset = vertex_information[1]._parent_body[0].col_offset"""
@@ -1301,9 +1298,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
+                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id, TEST_AWARE)
+                                branching_condition_id)
                             instrument_ast = ast.parse(instrument_code).body[0]
                             vertex_information[1].orelse.insert(0, instrument_ast)
                             print("Branch recording instrument placed")
@@ -1341,9 +1338,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
+                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id, TEST_AWARE)
+                                branching_condition_id)
                             instrument_code_ast = ast.parse(instrument_code).body[0]
                             """instrument_code_ast.lineno = vertex_information[1].lineno+1
                             instrument_code_ast.col_offset = vertex_information[1].col_offset"""
@@ -1367,9 +1364,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code_inside_loop = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
+                            instrument_code_inside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id, TEST_AWARE)
+                                branching_condition_id)
                             instrument_inside_loop_ast = ast.parse(instrument_code_inside_loop).body[0]
                             """instrument_inside_loop_ast.lineno = vertex_information[1].lineno
                             instrument_inside_loop_ast.col_offset = vertex_information[1].col_offset"""
@@ -1385,9 +1382,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code_outside_loop = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
+                            instrument_code_outside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id, TEST_AWARE)
+                                branching_condition_id)
                             instrument_outside_loop_ast = ast.parse(instrument_code_outside_loop).body[0]
                             """instrument_outside_loop_ast.lineno = vertex_information[3].lineno+1
                             instrument_outside_loop_ast.col_offset = vertex_information[3].col_offset"""
@@ -1417,10 +1414,10 @@ if __name__ == "__main__":
                 #                       VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 #                       formula_hash)
 
-                start_instrument = "%s((\"%s\", \"function\", \"%s\", \"start\", datetime.datetime.now(), \"%s\", __thread_id, \"%s\" ))" \
+                start_instrument = "%s((\"%s\", \"function\", \"%s\", \"start\", datetime.datetime.now(), \"%s\", __thread_id))" \
                                   % (
                                         VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                        formula_hash, TEST_AWARE)
+                                        formula_hash)
 
 
                 threading_import_ast = ast.parse(thread_id_capture).body[0]

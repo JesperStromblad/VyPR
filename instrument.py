@@ -39,6 +39,9 @@ BYTECODE_EXTENSION = ".pyc"
 PROJECT_ROOT = ""
 USE_FLASK = True
 VERIFICATION_INSTRUCTION = "verification.send_event"
+TEST_FRAMEWORK = False
+
+
 
 """def print(*s):
 	global VERBOSE
@@ -259,10 +262,23 @@ def read_configuration(file):
     """
     Read in 'file', parse into an object and return.
     """
-    with open(file, "r") as h:
-        contents = h.read()
+    content = ""
+    skip = False
+    for line in open(file):
+        li = line.strip()
 
-    return json.loads(contents)
+        # Handle multi-line comments
+        if li.startswith("/*"):
+            skip = True
+        if li.endswith("*/"):
+            skip = False
+            continue
+
+        if not (li.startswith("#") or li.startswith("//")) and not skip:
+            content += line
+
+    return json.loads(content)
+
 
 
 def get_instrumentation_points_from_comp_sequence(value_from_binding, moves):
@@ -341,6 +357,8 @@ def instrument_point_state(state, name, point, binding_space_indices,
         observed_value=("record_state_%s" % state_variable_alias)
     )
     state_recording_instrument += "%s((%s))" % (VERIFICATION_INSTRUCTION, instrument_tuple)
+
+
 
     record_state_ast = ast.parse(state_recording_instrument).body[0]
     queue_ast = ast.parse(state_recording_instrument).body[1]
@@ -455,7 +473,174 @@ def instrument_point_transition(atom, point, binding_space_indices, atom_index,
     point._instruction._parent_body.insert(index_in_block, start_ast)
 
 
+## TESTING RELATED UPDATES --- 22.1.2020
+
+
+"""
+    Adds a setUp() method and creates a verification object if it doesn't exists, 
+    otherwise update the setUp() method with creating a verification object.
+    
+    METHOD_CONSTRAINT: 
+    
+"""
+
+def create_test_setup_method(enable_normal_testing, current_step, class_name):
+    """
+    :param enable_normal_testing:   Checks whether the testing is "normal" of "flask" based.
+    :param current_step:            Contains the AST for the code
+    :param class_name:              Name of the test class
+    """
+
+
+    setUp_found = False
+
+    if enable_normal_testing == "normal":
+
+        VERIFICATION_IMPORT = "from VyPR.init_verification import Verification"
+        VERIFICATION_OBJ ="self.verification = Verification()"
+
+        ## Finding the test class.
+        current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
+                      entry.name == class_name), current_step)[0]
+
+        test_class_body = current_step.body
+
+
+        ## Traversing the body of the class in order to look for setUp method
+
+        for test_function in test_class_body:
+
+
+            if not (type(test_function) is ast.FunctionDef):
+                continue
+
+            if test_function.name is 'setUp':
+                # We found setUp method, now we need to add verification instructions
+                setUp_found = True
+
+
+                verification_import_inst = ast.parse(VERIFICATION_IMPORT).body[0]
+                verification_import_obj_assign = ast.parse(VERIFICATION_OBJ).body[0]
+
+                test_function.body.insert(0,verification_import_obj_assign)
+                test_function.body.insert(0,verification_import_inst)
+
+    # If there is no setUp method, then we need to add setUp method in the class.
+        if not setUp_found:
+            setUp_method = "def setUp(self):\n\t" + VERIFICATION_IMPORT + '\n\t' + VERIFICATION_OBJ
+            method_inst = ast.parse(setUp_method).body[0]
+            test_class_body.insert(0,method_inst)
+
+
+
+"""
+    Adds a teardown method for storing each test status i.e., whether it failed, succeed or whether there was an error.
+
+"""
+
+
+def create_teardown_method(ast_code, class_name, formula_hash, function, test_aware_type):
+
+    """
+    :param ast_code:            Code for the AST
+    :param class_name:          Class name
+    :param formula_hash:        Hash value for the formula
+    :param function:            Fully qualified function name
+    :parame test_aware_type     type of testing can be normal or flask
+    """
+
+
+    tearDown_found = False
+    function_index = 0
+
+
+    # In case of flask, getting the class name
+
+
+
+    if detect_testing_frameworks(ast_code):
+
+        ## Finding the test class.
+        current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
+                                              entry.name == class_name), ast_code.body)[0]
+
+        test_class_body = current_step.body
+
+
+        if TEST_AWARE == 'flask':
+            flask_import = "from app import verification\n\t"
+        else:
+            flask_import = ""
+
+        verification_call_code =  "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, datetime.datetime.now(),\"%s\", \"s\"))" % \
+                                 (VERIFICATION_INSTRUCTION, formula_hash, function,formula_hash
+                                  )
+
+        flask_code = flask_import + verification_call_code
+
+        for test_function in test_class_body:
+
+
+            if isinstance(test_function, ast.FunctionDef):
+                function_index = function_index + 1                 # Placed teardown as the last function
+
+
+            if not (type(test_function) is ast.FunctionDef):
+                continue
+
+            if test_function.name is 'tearDown':
+                # We found setUp method, now we need to add verification instructions
+                tearDown_found = True
+                verification_call_inst = ast.parse(verification_call_code).body[0]
+                test_function.body.insert(0,verification_call_inst)
+
+        if not tearDown_found:
+            tear_method = "def tearDown(self):\n\t" + flask_code
+            method_inst = ast.parse(tear_method).body[0]
+            test_class_body.insert((function_index),method_inst)
+
+
+
+
+
+        #for test_function in test_class_body:
+
+
+
+
+"""
+     Detects whether the instrumented file has a testing framework. It will then generated verification object and instruction
+     related to testing. See create_setup_method/create_teardown_method.
+         
+     CONSTRAINT: Only works for python unittests, we will have to extend it for different python testing frameworks.   
+"""
+
+def detect_testing_frameworks(ast_code):
+
+    """
+    :param ast_code:    Abstract Syntax Tree for the code.
+    """
+    
+    if TEST_AWARE != None:
+
+        for node in ast_code.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                if node.names[0].__dict__['name'] is 'unittest':
+
+                    return True
+            else:
+                    return False
+    else:
+        print("specify testing to either flask or normal in vypr.config file")
+
+        exit()
+
+
 if __name__ == "__main__":
+
+
+   # import pdb; pdb.set_trace()
+
 
     parser = argparse.ArgumentParser(description='Instrumentation for VyPR.')
     parser.add_argument('--verbose', action='store_true',
@@ -484,9 +669,40 @@ if __name__ == "__main__":
         if inst_configuration.get("use_flask") else "no"
     VERIFICATION_INSTRUCTION = inst_configuration.get("verification_instruction") \
         if inst_configuration.get("verification_instruction") else "verification.send_event"
+    TEST_AWARE = inst_configuration.get("testing")
+    FLASK_TEST_FOLDER=inst_configuration.get("flask_test_folder") \
+       if inst_configuration.get("flask_test_folder") else ""
+
+    ##Test related checks in configuration file.
+    if TEST_AWARE not in ['normal', 'flask', 'None']:
+       print ("Specify normal or flask for testing. None for normal program analysis")
+       exit()
+
+
+    if TEST_AWARE == 'flask':
+        # In flask-based testing, it is important to specify the file (absolute path) where test case is present.
+        if inst_configuration.get("flask_test_folder") == None:
+            print ("Specify the path for flask test file.")
+            exit()
+        else:
+            # If incorrect format of the path is specified. The path should only start with a directory name and end with .py extension.
+            import re
+            m = re.search('^([A-z0-9-_+]+\/)*([A-z0-9]+\.(py))',inst_configuration.get("flask_test_folder"))
+            if m == None:
+                print ("Specify the correct path for flask test file.")
+                exit()
+
+    if TEST_AWARE == 'normal':
+       VERIFICATION_INSTRUCTION = "self.verification.send_event"
+
 
     # convert the USE_FLASK flag to boolean
     USE_FLASK = {"yes": True, "no": False}[USE_FLASK]
+
+
+    SETUP_ONCE =False
+    TEARDOWN_ONCE = False
+
 
     # reset code to non-instrumented
     for directory in os.walk("."):
@@ -546,6 +762,7 @@ if __name__ == "__main__":
             # and class navigation later on
             instrument_function_qualifier = "%s.%s" % (module, function.replace(".", ":"))
 
+
             index_to_hash = []
 
             qualifier_subsequence = get_qualifier_subsequence(function)
@@ -561,16 +778,21 @@ if __name__ == "__main__":
 
             current_step = asts.body
 
-            # traverse sub structures
+            # Code for handling testing ()
+            if not SETUP_ONCE and TEST_AWARE == 'normal':
+                test_class_name = function_name[0]
+                create_test_setup_method(TEST_AWARE, current_step,test_class_name)
+                SETUP_ONCE = True
+
 
             for step in hierarchy:
+
                 current_step = filter(
                     lambda entry: (type(entry) is ast.ClassDef and
                                    entry.name == step),
                     current_step
                 )[0]
 
-            # find the final function definition
 
             function_def = filter(
                 lambda entry: (type(entry) is ast.FunctionDef and
@@ -623,6 +845,36 @@ if __name__ == "__main__":
 
                 # update the index -> hash map
                 index_to_hash.append(formula_hash)
+
+                if not TEARDOWN_ONCE:
+                    if TEST_AWARE == 'normal':
+                        create_teardown_method(asts,test_class_name,formula_hash,instrument_function_qualifier, TEST_AWARE)
+
+                    elif TEST_AWARE == 'flask':
+                        flask_test_file = inst_configuration.get("flask_test_folder")
+                        flask_test_file_without_extension = inst_configuration.get("flask_test_folder").replace('.py','')
+
+                        code = "".join(open(flask_test_file, "r").readlines())
+                        flask_test_file_ast = ast.parse(code)
+
+                        for node in flask_test_file_ast.body:
+                            if type(node) == ast.ClassDef:
+                                class_name = node.name
+                        create_teardown_method(flask_test_file_ast, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
+
+
+                        backup_flask_file_name = "%s.py.inst" % flask_test_file_without_extension
+                        flask_instrumented_code = compile(flask_test_file_ast,backup_flask_file_name ,"exec")
+
+                        # append an underscore to indicate that it's instrumented - removed for now
+                        flask_instrumented_file_name = "%s%s" % (flask_test_file_without_extension, BYTECODE_EXTENSION)
+                        with open(flask_instrumented_file_name, "wb") as h:
+                             h.write(py_compile.MAGIC)
+                             py_compile.wr_long(h, long(time.time()))
+                             marshal.dump(flask_instrumented_code, h)
+
+
+                    TEARDOWN_ONCE = True
 
                 print("FORMULA HASH")
                 print(formula_hash)
@@ -760,9 +1012,9 @@ if __name__ == "__main__":
 
                         point = element[bind_variable_index]
 
-                        instrument = "%s((\"%s\", \"trigger\", \"%s\", %i, %i))" % \
+                        instrument = "%s((\"%s\", \"trigger\", \"%s\", %i, %i, \"%s\"))" % \
                                      (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, m,
-                                      bind_variable_index)
+                                      bind_variable_index, TEST_AWARE)
 
                         instrument_ast = ast.parse(instrument).body[0]
                         if type(point) is CFGVertex:
@@ -1024,9 +1276,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
+                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
+                                branching_condition_id, TEST_AWARE)
                             instrument_ast = ast.parse(instrument_code).body[0]
                             """instrument_ast.lineno = vertex_information[1]._parent_body[0].lineno
                             instrument_ast.col_offset = vertex_information[1]._parent_body[0].col_offset"""
@@ -1049,9 +1301,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
+                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
+                                branching_condition_id, TEST_AWARE)
                             instrument_ast = ast.parse(instrument_code).body[0]
                             vertex_information[1].orelse.insert(0, instrument_ast)
                             print("Branch recording instrument placed")
@@ -1089,9 +1341,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
+                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
+                                branching_condition_id, TEST_AWARE)
                             instrument_code_ast = ast.parse(instrument_code).body[0]
                             """instrument_code_ast.lineno = vertex_information[1].lineno+1
                             instrument_code_ast.col_offset = vertex_information[1].col_offset"""
@@ -1115,9 +1367,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code_inside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
+                            instrument_code_inside_loop = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
+                                branching_condition_id, TEST_AWARE)
                             instrument_inside_loop_ast = ast.parse(instrument_code_inside_loop).body[0]
                             """instrument_inside_loop_ast.lineno = vertex_information[1].lineno
                             instrument_inside_loop_ast.col_offset = vertex_information[1].col_offset"""
@@ -1133,9 +1385,9 @@ if __name__ == "__main__":
                                 print(
                                     "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
                                 exit()
-                            instrument_code_outside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
+                            instrument_code_outside_loop = "%s((\"%s\", \"path\", \"%s\", %i, \"%s\"))" % (
                                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
+                                branching_condition_id, TEST_AWARE)
                             instrument_outside_loop_ast = ast.parse(instrument_code_outside_loop).body[0]
                             """instrument_outside_loop_ast.lineno = vertex_information[3].lineno+1
                             instrument_outside_loop_ast.col_offset = vertex_information[3].col_offset"""
@@ -1160,10 +1412,16 @@ if __name__ == "__main__":
                 # NOTE: only problem with this is that the "end" instrument is inserted before the return,
                 # so a function call in the return statement maybe missed if it's part of verification...
                 thread_id_capture = "import threading; __thread_id = threading.current_thread().ident;"
-                start_instrument = "%s((\"%s\", \"function\", \"%s\", \"start\", flask.g.request_time, \"%s\", __thread_id))" \
-                                   % (
-                                       VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                       formula_hash)
+                #start_instrument = "%s((\"%s\", \"function\", \"%s\", \"start\", flask.g.request_time, \"%s\", __thread_id))" \
+                #                   % (
+                #                       VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                #                       formula_hash)
+
+                start_instrument = "%s((\"%s\", \"function\", \"%s\", \"start\", datetime.datetime.now(), \"%s\", __thread_id, \"%s\" ))" \
+                                  % (
+                                        VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+                                        formula_hash, TEST_AWARE)
+
 
                 threading_import_ast = ast.parse(thread_id_capture).body[0]
                 thread_id_capture_ast = ast.parse(thread_id_capture).body[1]
@@ -1192,9 +1450,12 @@ if __name__ == "__main__":
 
                 # insert the end instrument before every return statement
                 for end_vertex in scfg.return_statements:
-                    end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", flask.g.request_time, \"%s\", __thread_id))" \
-                                     % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                        formula_hash)
+                    end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", %r, flask.g.request_time, \"%s\", __thread_id, \"%s\"))" \
+                                     % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, detect_testing_frameworks(asts),
+                                        formula_hash, TEST_AWARE)
+
+
+
                     end_ast = ast.parse(end_instrument).body[0]
 
                     """end_ast.lineno = end_vertex._previous_edge._instruction.lineno
@@ -1212,9 +1473,13 @@ if __name__ == "__main__":
 
                 # if the last instruction in the ast is not a return statement, add an end instrument at the end
                 if not (type(function_def.body[-1]) is ast.Return):
-                    end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", flask.g.request_time, \"%s\"))" \
-                                     % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                        formula_hash)
+               #     end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", flask.g.request_time, \"%s\"))" \
+               #                      % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
+               #                         formula_hash)
+
+                    end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", %r ,datetime.datetime.now(), \"%s\", __thread_id, \"%s\"))" \
+                                % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,detect_testing_frameworks(asts),
+                                   formula_hash, TEST_AWARE)
                     end_ast = ast.parse(end_instrument).body[0]
 
                     function_def.body.insert(len(function_def.body), end_ast)

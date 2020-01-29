@@ -17,11 +17,19 @@ from VyPR.formula_building.formula_building import *
 from VyPR.monitor_synthesis import formula_tree
 from VyPR.verdict_reports import VerdictReport
 
+
 # sys.path.append("VyPR/")
 
 VERDICT_SERVER_URL = None
 VYPR_OUTPUT_VERBOSE = True
 PROJECT_ROOT = None
+
+## USED IN CASE OF FLASK TESTING
+#MAP_COPY_VERDICT = {}
+
+## The purpose of this flag is to exclude verification send_event call
+## with 'test_status' option, if "end" option has not occured.
+IS_END_OPT = False
 
 
 # thank you to the CMS Conditions Browser team for this
@@ -43,7 +51,7 @@ def vypr_output(string, *args):
 
 
 def send_verdict_report(function_name, time_of_call, end_time_of_call, program_path, verdict_report,
-                        binding_to_line_numbers, http_request_time, property_hash):
+                        binding_to_line_numbers, http_request_time, property_hash,  test_result = None, test_name = None):
     """
     Send verdict data for a given function call (function name + time of call).
     """
@@ -59,7 +67,9 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
         "end_time_of_call": end_time_of_call.isoformat(),
         "function_name": function_name,
         "property_hash": property_hash,
-        "program_path": program_path
+        "program_path": program_path,
+        "test_result": test_result,
+        "test_name" : test_name
     }
     vypr_output("CALL DATA")
     vypr_output(call_data)
@@ -113,17 +123,29 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
     vypr_output("Verdicts sent.")
 
 
+
+
 def consumption_thread_function(verification_obj):
     # the web service has to be considered as running forever, so the monitoring loop for now should also run forever
     # this needs to be changed for a clean exit
     INACTIVE_MONITORING = False
+
+
+
+
     while True:
+
+      #  import pdb
+      #  pdb.set_trace()
+
 
         # take top element from the queue
         try:
             top_pair = verification_obj.consumption_queue.get(timeout=1)
+            ## In case of flask testing
         except:
             continue
+
 
         if top_pair[0] == "end-monitoring":
             # return from the monitoring function to end the monitoring thread
@@ -158,7 +180,10 @@ def consumption_thread_function(verification_obj):
         instrument_type = top_pair[0]
         function_name = top_pair[1]
 
-        # get the maps we need for this function
+
+            # get the maps we need for this function
+
+
         maps = verification_obj.function_to_maps[function_name][property_hash]
         static_qd_to_point_map = maps.static_qd_to_point_map
         static_qd_to_monitors = maps.static_qd_to_monitors
@@ -176,9 +201,13 @@ def consumption_thread_function(verification_obj):
             # that are updated at runtime
             scope_event = top_pair[2]
             if scope_event == "end":
-
+                global IS_END_OPT
+                IS_END_OPT = True
                 # before resetting the qd -> monitor map, go through it to find monitors
                 # that reached a verdict, and register those in the verdict report
+
+
+                vypr_output("Set the function name...")
 
                 for static_qd_index in static_qd_to_monitors:
                     for monitor in static_qd_to_monitors[static_qd_index]:
@@ -218,28 +247,44 @@ def consumption_thread_function(verification_obj):
                         elif type(bind_var) is CFGEdge:
                             binding_to_line_numbers[bind_space_index].append(bind_var._instruction.lineno)
 
+                print(top_pair)
+
                 # send the verdict
                 # we send the function name, the time of the function call, the verdict report object,
                 # the map of bindings to their line numbers and the date/time of the request the identify it (single threaded...)
-                send_verdict_report(
-                    function_name,
-                    maps.latest_time_of_call,
-                    datetime.datetime.now(),
-                    maps.program_path,
-                    verdict_report,
-                    binding_to_line_numbers,
-                    top_pair[3],
-                    top_pair[4]
-                )
 
-                # reset the verdict report
-                maps.verdict_report.reset()
 
-                # reset the function start time for the next time
-                maps.latest_time_of_call = None
 
-                # reset the program path
-                maps.program_path = []
+
+
+
+                # We only send verdict data to the server when
+
+                test_aware_status = top_pair[7]
+                if not test_aware_status in ['normal', 'flask']:
+
+                    send_verdict_report(
+                        function_name,
+                        maps.latest_time_of_call,
+                        datetime.datetime.now(),
+                        maps.program_path,
+                        verdict_report,
+                        binding_to_line_numbers,
+                        top_pair[4],
+                        top_pair[5]
+                        )
+
+
+
+
+                    # reset the verdict report
+                    maps.verdict_report.reset()
+
+                    # reset the function start time for the next time
+                    maps.latest_time_of_call = None
+
+                    # reset the program path
+                    maps.program_path = []
 
             elif scope_event == "start":
                 vypr_output("*" * 50)
@@ -250,6 +295,7 @@ def consumption_thread_function(verification_obj):
                 maps.latest_time_of_call = datetime.datetime.now()
 
                 vypr_output("*" * 50)
+
 
         if instrument_type == "trigger":
             # we've received a trigger instrument
@@ -383,6 +429,45 @@ def consumption_thread_function(verification_obj):
                                                        inst_point_id=instrumentation_point_db_id,
                                                        program_path=len(program_path), state_dict=state_dict)
 
+
+        if instrument_type == "test_status":
+                global IS_END_OPT
+                if IS_END_OPT:
+
+                    status = top_pair[2]
+
+                    if status.failures:
+                        test_result = "Fail"
+                    elif status.errors:
+                        test_result = "Error"
+                    else:
+                        test_result = "Success"
+                    vypr_output("Sending verdict report only in case of testing")
+
+
+                    send_verdict_report(
+                            function_name,
+                            maps.latest_time_of_call,
+                            datetime.datetime.now(),
+                            maps.program_path,
+                            verdict_report,
+                            binding_to_line_numbers,
+                            top_pair[3],
+                            top_pair[4],
+                            test_result
+                        )
+
+                    # reset the verdict report
+                    maps.verdict_report.reset()
+
+                    # reset the function start time for the next time
+                    maps.latest_time_of_call = None
+
+                    # reset the program path
+                    maps.program_path = []
+
+                    IS_END_OPT = False
+
         # set the task as done
         verification_obj.consumption_queue.task_done()
 
@@ -415,6 +500,7 @@ class PropertyMapGroup(object):
                   (module_name.replace(".", "-"), function_name.replace(":", "-")), "rb") as h:
             index_to_hash_dump = h.read()
 
+        #
         inst_configuration = read_configuration("vypr.config")
 
         # get the specification file name
@@ -445,13 +531,27 @@ def read_configuration(file):
     """
     Read in 'file', parse into an object and return.
     """
-    with open(file, "r") as h:
-        contents = h.read()
+    content = ""
+    skip = False
+    for line in open(file):
+        li = line.strip()
 
-    return json.loads(contents)
+        # Handle multi-line comments
+        if li.startswith("/*"):
+            skip = True
+        if li.endswith("*/"):
+            skip = False
+            continue
+
+        if not (li.startswith("#") or li.startswith("//")) and not skip:
+            content += line
+
+    return json.loads(content)
+
 
 
 class Verification(object):
+
 
     def __init__(self, flask_object=None):
         """
@@ -556,6 +656,7 @@ class Verification(object):
         vypr_output("VyPR monitoring initialisation finished.")
 
     def send_event(self, event_description):
+        print("trying to send an event..")
         if not (self.initialisation_failure):
             vypr_output("adding %s to consumption queue" % str(event_description))
             self.consumption_queue.put(event_description)
@@ -574,3 +675,9 @@ class Verification(object):
         if not (self.initialisation_failure):
             vypr_output("Sending monitoring resume message.")
             self.consumption_queue.put(("inactive-monitoring-stop",))
+
+    def get_test_result_in_flask(self,className, methodName, result):
+            print("Got the name and the status of the test {} {} {}".format(className, methodName, result))
+
+
+

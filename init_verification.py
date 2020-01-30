@@ -59,7 +59,30 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
     verdicts = verdict_report.get_final_verdict_report()
     vypr_output("Sending verdicts to server")
 
+
+    # If test data exists.
+    if test_result !=None:
+        vypr_output("SENDING TEST DATA")
+        vypr_output("TEST_NAME {}".format(test_name))
+        vypr_output("TEST_RESULT {}".format(test_result))
+
+
+        test_data = {
+            "test_name"   : test_name,
+            "test_result" : test_result
+        }
+
+
+        test_id = json.loads(requests.post(
+            os.path.join(VERDICT_SERVER_URL, "insert_test_data/"),
+            data=json.dumps(test_data)
+        ).text)
+
+
+
+
     # first, send function call data - this will also insert program path data
+
 
     call_data = {
         "http_request_time": http_request_time.isoformat(),
@@ -68,8 +91,7 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
         "function_name": function_name,
         "property_hash": property_hash,
         "program_path": program_path,
-        "test_result": test_result,
-        "test_name" : test_name
+        "test_data_id": test_id
     }
     vypr_output("CALL DATA")
     vypr_output(call_data)

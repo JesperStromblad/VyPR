@@ -500,36 +500,53 @@ def create_test_setup_method(enable_normal_testing, current_step, class_name):
         VERIFICATION_OBJ ="self.verification = Verification()"
 
         ## Finding the test class.
-        current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
+    current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
                       entry.name == class_name), current_step)[0]
 
-        test_class_body = current_step.body
+    test_class_body = current_step.body
 
+    first_test_method = get_test_case_position(test_class_body, 0)
 
-        ## Traversing the body of the class in order to look for setUp method
+    first_test_method = "'" + first_test_method + "'"
 
-        for test_function in test_class_body:
+    transaction_time_statement =  "%s((\"test_transaction\",  datetime.datetime.now()))" % \
+                                      (VERIFICATION_INSTRUCTION)
 
+    check_condition_for_transaction = "if self._testMethodName ==" +first_test_method + ":" + transaction_time_statement
 
-            if not (type(test_function) is ast.FunctionDef):
-                continue
+    ## Traversing the body of the class in order to look for setUp method
 
-            if test_function.name is 'setUp':
-                # We found setUp method, now we need to add verification instructions
-                setUp_found = True
+    for test_function in test_class_body:
 
+        if not (type(test_function) is ast.FunctionDef):
+            continue
 
+        if test_function.name == 'setUp':
+            # We found setUp method, now we need to add verification instructions
+            setUp_found = True
+
+            check_condition_for_transaction_assign = ast.parse(check_condition_for_transaction).body[0]
+            test_function.body.insert(0,check_condition_for_transaction_assign)
+
+            if TEST_AWARE == 'normal':
                 verification_import_inst = ast.parse(VERIFICATION_IMPORT).body[0]
                 verification_import_obj_assign = ast.parse(VERIFICATION_OBJ).body[0]
-
                 test_function.body.insert(0,verification_import_obj_assign)
                 test_function.body.insert(0,verification_import_inst)
 
+
+
+
     # If there is no setUp method, then we need to add setUp method in the class.
-        if not setUp_found:
-            setUp_method = "def setUp(self):\n\t" + VERIFICATION_IMPORT + '\n\t' + VERIFICATION_OBJ
-            method_inst = ast.parse(setUp_method).body[0]
-            test_class_body.insert(0,method_inst)
+    if not setUp_found:
+        if TEST_AWARE == 'normal':
+            setUp_method = "def setUp(self):\n\t" + VERIFICATION_IMPORT + '\n\t' + VERIFICATION_OBJ + '\n\t' + check_condition_for_transaction
+        else:
+            setUp_method = "def setUp(self):\n\t" +  check_condition_for_transaction
+
+        method_inst = ast.parse(setUp_method).body[0]
+        test_class_body.insert(0,method_inst)
+
 
 
 
@@ -569,14 +586,34 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
 
         if TEST_AWARE == 'flask':
             flask_import = "from app import verification\n\t"
+            verification_name = "verification"
         else:
             flask_import = ""
+            verification_name = "self.verification"
 
-        verification_call_code =  "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, datetime.datetime.now(),\"%s\", \"s\"))" % \
+        verification_call_code =  "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, datetime.datetime.now(),\"%s\"))" % \
                                  (VERIFICATION_INSTRUCTION, formula_hash, function,formula_hash
                                   )
 
+
+
+
+        # ## Find the name of last test method
+        # function_ast_list = filter( lambda entry: (type(entry) is ast.FunctionDef),test_class_body)
+        # function_name = map(lambda function: function.name, function_ast_list)
+        #
+        # function_name.remove('setUp')
+        # function_name.remove('tearDown')
+        #
+        # last_test_method_name = function_name[-1]
+
+        last_test_method_name = get_test_case_position(test_class_body, -1)
+
+        terminate_monitoring_call = "if self._testMethodName ==" +last_test_method_name + ":" +verification_name  + ".end_monitoring()"
+        verification_call_code = verification_call_code + '\n' + terminate_monitoring_call
+
         flask_code = flask_import + verification_call_code
+
 
         for test_function in test_class_body:
 
@@ -594,6 +631,9 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
                 verification_call_inst = ast.parse(verification_call_code).body[0]
                 test_function.body.insert(0,verification_call_inst)
 
+
+        ## Terminate monitoring after all tests are analyzed
+
         if not tearDown_found:
             tear_method = "def tearDown(self):\n\t" + flask_code
             method_inst = ast.parse(tear_method).body[0]
@@ -601,7 +641,21 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
 
 
 
+"""
+    Identifies the position of a test case in a test suite
+"""
 
+def get_test_case_position(test_class_body, position):
+    ## Find the name of last test method
+    function_ast_list = filter( lambda entry: (type(entry) is ast.FunctionDef),test_class_body)
+    function_name = map(lambda function: function.name, function_ast_list)
+
+    if 'setUp' in function_name:
+        function_name.remove('setUp')
+    if 'tearDown' in function_name:
+        function_name.remove('tearDown')
+
+    return function_name[position]
 
 
 

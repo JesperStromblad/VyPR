@@ -51,13 +51,15 @@ def vypr_output(string, *args):
 
 
 def send_verdict_report(function_name, time_of_call, end_time_of_call, program_path, verdict_report,
-                        binding_to_line_numbers, http_request_time, property_hash,  test_result = None, test_name = None):
+                        binding_to_line_numbers, transaction_time, property_hash,  test_result = None, test_name = None):
     """
     Send verdict data for a given function call (function name + time of call).
     """
     global VERDICT_SERVER_URL
     verdicts = verdict_report.get_final_verdict_report()
     vypr_output("Sending verdicts to server")
+
+
 
 
     # If test data exists.
@@ -85,7 +87,7 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
 
 
     call_data = {
-        "http_request_time": http_request_time.isoformat(),
+        "transaction_time": transaction_time.isoformat(),
         "time_of_call": time_of_call.isoformat(),
         "end_time_of_call": end_time_of_call.isoformat(),
         "function_name": function_name,
@@ -93,6 +95,8 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
         "program_path": program_path,
         "test_data_id": test_id
     }
+
+
     vypr_output("CALL DATA")
     vypr_output(call_data)
     insertion_result = json.loads(requests.post(
@@ -151,7 +155,7 @@ def consumption_thread_function(verification_obj):
     # the web service has to be considered as running forever, so the monitoring loop for now should also run forever
     # this needs to be changed for a clean exit
     INACTIVE_MONITORING = False
-
+    global IS_END_OPT
 
 
 
@@ -191,6 +195,12 @@ def consumption_thread_function(verification_obj):
                 continue
         # if inactive monitoring is off (so monitoring is running), process what we consumed
 
+
+        if top_pair[0] == "test_transaction":
+                transaction = top_pair[1]
+                vypr_output("Test suite begins at", transaction)
+                continue
+
         vypr_output("Consuming:")
         vypr_output(top_pair)
 
@@ -223,7 +233,7 @@ def consumption_thread_function(verification_obj):
             # that are updated at runtime
             scope_event = top_pair[2]
             if scope_event == "end":
-                global IS_END_OPT
+
                 IS_END_OPT = True
                 # before resetting the qd -> monitor map, go through it to find monitors
                 # that reached a verdict, and register those in the verdict report
@@ -288,13 +298,13 @@ def consumption_thread_function(verification_obj):
                     send_verdict_report(
                         function_name,
                         maps.latest_time_of_call,
-                        datetime.datetime.now(),
+                        top_pair[-1],
                         maps.program_path,
                         verdict_report,
                         binding_to_line_numbers,
-                        top_pair[4],
-                        top_pair[5]
-                        )
+                        top_pair[3],
+                        top_pair[4]
+                    )
 
 
 
@@ -453,7 +463,7 @@ def consumption_thread_function(verification_obj):
 
 
         if instrument_type == "test_status":
-                global IS_END_OPT
+                
                 if IS_END_OPT:
 
                     status = top_pair[2]
@@ -467,6 +477,8 @@ def consumption_thread_function(verification_obj):
                     vypr_output("Sending verdict report only in case of testing")
 
 
+
+
                     send_verdict_report(
                             function_name,
                             maps.latest_time_of_call,
@@ -474,7 +486,8 @@ def consumption_thread_function(verification_obj):
                             maps.program_path,
                             verdict_report,
                             binding_to_line_numbers,
-                            top_pair[3],
+                            transaction,
+                        #    top_pair[3],
                             top_pair[4],
                             test_result
                         )

@@ -330,7 +330,6 @@ def consumption_thread_function(verification_obj):
                         elif type(bind_var) is CFGEdge:
                             binding_to_line_numbers[bind_space_index].append(bind_var._instruction.lineno)
 
-<<<<<<< HEAD
                 print(top_pair)
 
                 # send the verdict
@@ -674,7 +673,7 @@ class Verification(object):
             self.initialisation_failure = True
             return
 
-    def initialise(self, flask_object):
+   def initialise(self, flask_object):
 
         vypr_output("Initialising VyPR alongside service.")
 
@@ -793,7 +792,7 @@ class Verification(object):
 
         vypr_output("VyPR monitoring initialisation finished.")
 
-    def get_time(self):
+   def get_time(self):
         """
         Returns either the machine local time, or the NTP time (using the initial NTP time
         obtained when VyPR started up, so we don't query an NTP server everytime we want to measure time).
@@ -812,27 +811,27 @@ class Verification(object):
             vypr_output("Getting time based on local machine.")
             return datetime.datetime.utcnow()
 
-    def send_event(self, event_description):
+   def send_event(self, event_description):
         print("trying to send an event..")
         if not (self.initialisation_failure):
             self.consumption_queue.put(event_description)
 
-    def end_monitoring(self):
+   def end_monitoring(self):
         if not (self.initialisation_failure):
             vypr_output("Ending VyPR monitoring thread.")
             self.consumption_queue.put(("end-monitoring",))
 
-    def pause_monitoring(self):
+   def pause_monitoring(self):
         if not (self.initialisation_failure):
             vypr_output("Sending monitoring pause message.")
             self.consumption_queue.put(("inactive-monitoring-start",))
 
-    def resume_monitoring(self):
+   def resume_monitoring(self):
         if not (self.initialisation_failure):
             vypr_output("Sending monitoring resume message.")
             self.consumption_queue.put(("inactive-monitoring-stop",))
 
-    def get_test_result_in_flask(self,className, methodName, result):
+   def get_test_result_in_flask(self,className, methodName, result):
             print("Got the name and the status of the test {} {} {}".format(className, methodName, result))
 
 

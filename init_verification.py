@@ -115,7 +115,8 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
             os.path.join(VERDICT_SERVER_URL, "insert_test_data/"),
             data=json.dumps(test_data)
         ).text)
-
+    else:
+        test_id = None
 
 
 
@@ -237,7 +238,7 @@ def consumption_thread_function(verification_obj):
 
         if top_pair[0] == "test_transaction":
                 transaction = top_pair[1]
-                vypr_output("Test suite begins at", transaction)
+                vypr_output("Test suite begins at")
                 continue
 
 
@@ -344,19 +345,19 @@ def consumption_thread_function(verification_obj):
                 # We only send verdict data to the server when
 
                 test_aware_status = top_pair[7]
+
                 if not test_aware_status in ['normal', 'flask']:
 
                     send_verdict_report(
                         function_name,
                         maps.latest_time_of_call,
-                        top_pair[-1],
+                        top_pair[-2],
                         maps.program_path,
                         verdict_report,
                         binding_to_line_numbers,
                         top_pair[3],
                         top_pair[4]
                     )
-
 
 
 
@@ -516,7 +517,8 @@ def consumption_thread_function(verification_obj):
 
 
         if instrument_type == "test_status":
-                
+
+
                 if IS_END_OPT:
 
                     status = top_pair[2]
@@ -528,7 +530,7 @@ def consumption_thread_function(verification_obj):
                     else:
                         test_result = "Success"
                     vypr_output("Sending verdict report only in case of testing")
-
+                    print("Sending verdict report only in case of testing")
 
 
 

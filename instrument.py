@@ -403,21 +403,21 @@ def instrument_point_state(state, name, point, binding_space_indices,
     if measure_attribute == "length":
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = len(%s); " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = vypr.get_time();" % state_variable_alias
+        time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
     elif measure_attribute == "type":
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = type(%s).__name__; " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = vypr.get_time();" % state_variable_alias
+        time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
     elif measure_attribute == "time_attained":
         state_variable_alias = "time_attained_%i" % atom_sub_index
-        state_recording_instrument = "record_state_%s = vypr.get_time(); " % state_variable_alias
+        state_recording_instrument = "record_state_%s = %s.get_time(); " % (state_variable_alias,VYPR_OBJ)
         time_attained_instrument = state_recording_instrument
         # the only purpose here is to match what is expected in the monitoring algorithm
         name = "time"
     else:
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = %s; " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = vypr.get_time();" % state_variable_alias
+        time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
 
     # note that observed_value is used three times:
     # 1) to capture the time attained by the state for checking of a property - this is duplicated
@@ -536,8 +536,8 @@ def instrument_point_transition(atom, point, binding_space_indices, atom_index,
     else:
         state_dict = "{}"
 
-    timer_start_statement = "__timer_s = vypr.get_time()"
-    timer_end_statement = "__timer_e = vypr.get_time()"
+    timer_start_statement = "__timer_s =" + VYPR_OBJ + ".get_time()"
+    timer_end_statement = "__timer_e ="+ VYPR_OBJ + ".get_time()"
 
     time_difference_statement = "__duration = __timer_e - __timer_s; "
     instrument_tuple = ("'{formula_hash}', 'instrument', '{function_qualifier}', {binding_space_index}," +
@@ -592,7 +592,7 @@ def instrument_point_transition(atom, point, binding_space_indices, atom_index,
     
 """
 
-def create_test_setup_method(enable_normal_testing, current_step, class_name):
+def create_test_setup_method(current_step, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE):
     """
     :param enable_normal_testing:   Checks whether the testing is "normal" of "flask" based.
     :param current_step:            Contains the AST for the code
@@ -602,10 +602,13 @@ def create_test_setup_method(enable_normal_testing, current_step, class_name):
 
     setUp_found = False
 
-    if enable_normal_testing == "normal":
+    if TEST_AWARE == "normal":
 
-        VERIFICATION_IMPORT = "from VyPR.init_verification import Verification"
-        VERIFICATION_OBJ ="self.verification = Verification()"
+        #VERIFICATION_IMPORT = "from VyPR.init_verification import Verification"
+        #VERIFICATION_OBJ ="self.verification = Verification()"
+        VERIFICATION_IMPORT = "from VyPR import Monitor; self.vypr = Monitor()"
+        VERIFICATION_OBJ = "self.vypr.initialise(None)"
+
 
         ## Finding the test class.
     current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
@@ -617,7 +620,7 @@ def create_test_setup_method(enable_normal_testing, current_step, class_name):
 
     first_test_method = "'" + first_test_method + "'"
 
-    transaction_time_statement =  "%s((\"test_transaction\",  datetime.datetime.now()))" % \
+    transaction_time_statement =  "%s((\"test_transaction\", vypr_dt.now() ))" % \
                                       (VERIFICATION_INSTRUCTION)
 
     check_condition_for_transaction = "if self._testMethodName ==" +first_test_method + ":" + transaction_time_statement
@@ -692,14 +695,8 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
         test_class_body = current_step.body
 
 
-        if TEST_AWARE == 'flask':
-            flask_import = "from app import verification\n\t"
-            verification_name = "verification"
-        else:
-            flask_import = ""
-            verification_name = "self.verification"
 
-        verification_call_code =  "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, datetime.datetime.now(),\"%s\"))" % \
+        verification_call_code =  "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, vypr_dt.now(),\"%s\"))" % \
                                  (VERIFICATION_INSTRUCTION, formula_hash, function,formula_hash
                                   )
 
@@ -716,11 +713,12 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
         # last_test_method_name = function_name[-1]
 
         last_test_method_name = get_test_case_position(test_class_body, -1)
+        last_test_method_name = "'" + last_test_method_name + "'"
 
-        terminate_monitoring_call = "if self._testMethodName ==" +last_test_method_name + ":" +verification_name  + ".end_monitoring()"
-        verification_call_code = verification_call_code + '\n' + terminate_monitoring_call
+        terminate_monitoring_call = "if self._testMethodName ==" +last_test_method_name + ":" +VYPR_OBJ  + ".end_monitoring()"
+        verification_call_code = verification_call_code + '\n\t' + terminate_monitoring_call
 
-        flask_code = flask_import + verification_call_code
+
 
 
         for test_function in test_class_body:
@@ -734,7 +732,7 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
                 continue
 
             if test_function.name is 'tearDown':
-                # We found setUp method, now we need to add verification instructions
+                # We found tearDown method, now we need to add verification instructions
                 tearDown_found = True
                 verification_call_inst = ast.parse(verification_call_code).body[0]
                 test_function.body.insert(0,verification_call_inst)
@@ -742,8 +740,9 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
 
         ## Terminate monitoring after all tests are analyzed
 
+
         if not tearDown_found:
-            tear_method = "def tearDown(self):\n\t" + flask_code
+            tear_method = "def tearDown(self):\n\t" + verification_call_code
             method_inst = ast.parse(tear_method).body[0]
             test_class_body.insert((function_index),method_inst)
 
@@ -779,7 +778,7 @@ def detect_testing_frameworks(ast_code):
     """
     :param ast_code:    Abstract Syntax Tree for the code.
     """
-    
+
     if TEST_AWARE != None:
 
         for node in ast_code.body:
@@ -975,7 +974,7 @@ def place_function_begin_instruments(function_def, formula_hash, instrument_func
     # NOTE: only problem with this is that the "end" instrument is inserted before the return,
     # so a function call in the return statement maybe missed if it's part of verification...
     thread_id_capture = "import threading; __thread_id = threading.current_thread().ident;"
-    vypr_start_time_instrument = "vypr_start_time = vypr.get_time();"
+    vypr_start_time_instrument = "vypr_start_time = %s.get_time();" %VYPR_OBJ
     start_instrument = \
         "%s((\"%s\", \"function\", \"%s\", \"start\", vypr_start_time, \"%s\", __thread_id))" \
         % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash)
@@ -996,13 +995,19 @@ def place_function_begin_instruments(function_def, formula_hash, instrument_func
     function_def.body.insert(0, vypr_start_time_ast)
 
 
-def place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier):
+def place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier, TEST_AWARE):
     # insert the end instrument before every return statement
+
+    if TEST_AWARE == "normal":
+        time = "vypr_dt.now()"
+    else:
+        time = "flask.g.request_time"
+
     for end_vertex in scfg.return_statements:
         end_instrument = \
-            "%s((\"%s\", \"function\", \"%s\", \"end\", flask.g.request_time, \"%s\", __thread_id, " \
-            "vypr.get_time()))" \
-            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash)
+            "%s((\"%s\", \"function\", \"%s\", \"end\", %s, \"%s\", __thread_id, " \
+            "%s.get_time(), \"%s\"))" \
+            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, time,formula_hash, VYPR_OBJ,TEST_AWARE)
         end_ast = ast.parse(end_instrument).body[0]
 
         end_ast.lineno = end_vertex._previous_edge._instruction._parent_body[-1].lineno
@@ -1017,10 +1022,10 @@ def place_function_end_instruments(function_def, scfg, formula_hash, instrument_
 
     # if the last instruction in the ast is not a return statement, add an end instrument at the end
     if not (type(function_def.body[-1]) is ast.Return):
-        end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", flask.g.request_time, \"%s\", __thread_id, " \
-                         "vypr.get_time()))" \
-                         % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                            formula_hash)
+        end_instrument = \
+            "%s((\"%s\", \"function\", \"%s\", \"end\", %s, \"%s\", __thread_id, " \
+            "%s.get_time(), \"%s\"))" \
+            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, time,formula_hash, VYPR_OBJ,TEST_AWARE)
         end_ast = ast.parse(end_instrument).body[0]
 
         logger.log("Placing end instrument at the end of the function body.")
@@ -1088,13 +1093,18 @@ if __name__ == "__main__":
                 print ("Specify the correct path for flask test file.")
                 exit()
 
-    if TEST_AWARE == 'normal':
-       VERIFICATION_INSTRUCTION = "self.verification.send_event"
+
 
     VYPR_MODULE = inst_configuration.get("vypr_module") \
         if inst_configuration.get("vypr_module") else ""
     VERIFICATION_INSTRUCTION = "vypr.send_event"
     # VERIFICATION_INSTRUCTION = "print"
+    VYPR_OBJ = "vypr"
+
+    if TEST_AWARE == 'normal':
+       VYPR_OBJ = "self.vypr"
+       VERIFICATION_INSTRUCTION = VYPR_OBJ+".send_event"
+
 
     machine_id = ("%s-" % inst_configuration.get("machine_id")) if inst_configuration.get("machine_id") else ""
 
@@ -1103,27 +1113,26 @@ if __name__ == "__main__":
         print("Verdict server is not reachable.  Ending instrumentation - nothing has been done.")
         exit()
 
+
+    SETUP_ONCE =False
+    TEARDOWN_ONCE = False
+
     # initialise instrumentation logger
     logger = InstrumentationLog(LOGS_TO_STDOUT)
     # set up the file handle
     logger.start_logging()
 
-
-    SETUP_ONCE =False
-    TEARDOWN_ONCE = False
-
-
     # reset code to non-instrumented
     for directory in os.walk("."):
-        for file in directory[2]:
-            if not ("venv" in file):
-                f = os.path.join(directory[0], file)
-                if ".py.inst" in f:
-                    # rename to .py
-                    os.rename(f, f.replace(".py.inst", ".py"))
-                    # delete bytecode
-                    os.remove(f.replace(".py.inst", BYTECODE_EXTENSION))
-                    logger.log("Reset file %s to uninstrumented version." % f)
+       for file in directory[2]:
+           if not ("venv" in file):
+               f = os.path.join(directory[0], file)
+               if ".py.inst" in f:
+                   # rename to .py
+                   os.rename(f, f.replace(".py.inst", ".py"))
+                   # delete bytecode
+                   os.remove(f.replace(".py.inst", BYTECODE_EXTENSION))
+                   logger.log("Reset file %s to uninstrumented version." % f)
 
     logger.log("Importing PyCFTL queries...")
     # load in verification config file
@@ -1144,847 +1153,606 @@ if __name__ == "__main__":
 
     for module in verified_modules:
 
-        logger.log("Processing module '%s'." % module)
+       logger.log("Processing module '%s'." % module)
 
-        verified_functions = verification_conf[module].keys()
+       verified_functions = verification_conf[module].keys()
 
-        file_name = module.replace(".", "/") + ".py"
-        file_name_without_extension = module.replace(".", "/")
+       file_name = module.replace(".", "/") + ".py"
+       file_name_without_extension = module.replace(".", "/")
 
-        # extract asts from the code in the file
-        code = "".join(open(file_name, "r").readlines())
-        asts = ast.parse(code)
+       # extract asts from the code in the file
+       code = "".join(open(file_name, "r").readlines())
+       asts = ast.parse(code)
 
-        # add import for init_vypr module
-        import_code = "from %s import vypr" % VYPR_MODULE
-        import_ast = ast.parse(import_code).body[0]
-        import_ast.lineno = asts.body[0].lineno
-        import_ast.col_offset = asts.body[0].col_offset
-        asts.body.insert(0, import_ast)
+       # add import for init_vypr module
+       if not TEST_AWARE in ['normal']:
+           import_code = "from %s import vypr" % VYPR_MODULE
+           import_ast = ast.parse(import_code).body[0]
+           import_ast.lineno = asts.body[0].lineno
+           import_ast.col_offset = asts.body[0].col_offset
+           asts.body.insert(0, import_ast)
 
-        # add vypr datetime import
-        vypr_datetime_import = "from datetime import datetime as vypr_dt"
-        datetime_import_ast = ast.parse(vypr_datetime_import).body[0]
-        datetime_import_ast.lineno = asts.body[0].lineno
-        datetime_import_ast.col_offset = asts.body[0].col_offset
-        asts.body.insert(0, datetime_import_ast)
+           import_code = "import flask"
+           import_asts = ast.parse(import_code)
+           flask_import = import_asts.body[0]
+           asts.body.insert(0, flask_import)
 
-        # if we're using flask, we assume a certain architecture
-        import_code = "import flask"
-        import_asts = ast.parse(import_code)
-        flask_import = import_asts.body[0]
-        asts.body.insert(0, flask_import)
+       # add vypr datetime import
+       vypr_datetime_import = "from datetime import datetime as vypr_dt"
+       datetime_import_ast = ast.parse(vypr_datetime_import).body[0]
+       datetime_import_ast.lineno = asts.body[0].lineno
+       datetime_import_ast.col_offset = asts.body[0].col_offset
+       asts.body.insert(0, datetime_import_ast)
 
-        for function in verified_functions:
+       # if we're using flask, we assume a certain architecture
 
-            logger.log("Processing function '%s'." % function)
 
-            # we replace . with : in function definitions to make sure we can distinguish between module
-            # and class navigation later on
-            instrument_function_qualifier = "%s%s.%s" % (machine_id, module, function.replace(".", ":"))
+       for function in verified_functions:
 
+           logger.log("Processing function '%s'." % function)
 
-            index_to_hash = []
+           # we replace . with : in function definitions to make sure we can distinguish between module
+           # and class navigation later on
+           instrument_function_qualifier = "%s%s.%s" % (machine_id, module, function.replace(".", ":"))
 
-            qualifier_subsequence = get_qualifier_subsequence(function)
-            function_name = function.split(".")
+           index_to_hash = []
 
-            # find the function definition
+           qualifier_subsequence = get_qualifier_subsequence(function)
+           function_name = function.split(".")
 
-            actual_function_name = function_name[-1]
-            hierarchy = function_name[:-1]
+           # find the function definition
 
-            current_step = asts.body
+           actual_function_name = function_name[-1]
+           hierarchy = function_name[:-1]
 
-            # Code for handling testing ()
-            if not SETUP_ONCE and TEST_AWARE == 'normal':
-                test_class_name = function_name[0]
-                create_test_setup_method(TEST_AWARE, current_step,test_class_name)
-                SETUP_ONCE = True
+           current_step = asts.body
 
+           # traverse sub structures
 
-            for step in hierarchy:
+           for step in hierarchy:
+               current_step = list(filter(
+                   lambda entry: (type(entry) is ast.ClassDef and
+                                  entry.name == step),
+                   current_step
+               ))[0]
 
-                current_step = list(filter(
-                    lambda entry: (type(entry) is ast.ClassDef and
-                                   entry.name == step),
-                    current_step
-                ))[0]
+           # find the final function definition
 
+           function_def = list(filter(
+               lambda entry: (type(entry) is ast.FunctionDef and
+                              entry.name == actual_function_name),
+               current_step.body if type(current_step) is ast.ClassDef else current_step
+           ))[0]
+
+           # get all reference variables
+           reference_variables = []
+           for (formula_index, formula_structure) in enumerate(verification_conf[module][function]):
+               for var in formula_structure._bind_variables:
+                   if hasattr(var, "_treat_as_ref") and var._treat_as_ref:
+                       reference_variables.append(var._name_changed)
 
-            function_def = list(filter(
-                lambda entry: (type(entry) is ast.FunctionDef and
-                               entry.name == actual_function_name),
-                current_step.body if type(current_step) is ast.ClassDef else current_step
-            ))[0]
+           # construct the scfg of the code inside the function
 
-            # get all reference variables
-            reference_variables = []
-            for (formula_index, formula_structure) in enumerate(verification_conf[module][function]):
-                for var in formula_structure._bind_variables:
-                    if hasattr(var, "_treat_as_ref") and var._treat_as_ref:
-                        reference_variables.append(var._name_changed)
+           scfg = CFG(reference_variables=reference_variables)
+           scfg_vertices = scfg.process_block(function_def.body)
 
-            # construct the scfg of the code inside the function
+           top_level_block = function_def.body
 
-            scfg = CFG(reference_variables=reference_variables)
-            scfg_vertices = scfg.process_block(function_def.body)
+           logger.log("SCFG constructed.")
 
-            top_level_block = function_def.body
+           # write scfg to file
+           write_scfg_to_file(scfg, "%s-%s-%s.gv" %
+                              (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
+                               function.replace(".", "-")))
 
-            logger.log("SCFG constructed.")
-
-            # write scfg to file
-            write_scfg_to_file(scfg, "%s-%s-%s.gv" %
-                               (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
-                                function.replace(".", "-")))
-
-            # for each property, instrument the function for that property
-
-            for (formula_index, formula_structure) in enumerate(verification_conf[module][function]):
-
-                logger.log("Instrumenting for PyCFTL formula %s" % formula_structure)
-
-                # we should be able to use the same scfg for each stage of instrumentation,
-                # since when we insert instruments we recompute the position of the instrumented instruction
-
-                atoms = formula_structure._formula_atoms
-
-                formula_hash = hashlib.sha1()
-                serialised_bind_variables = base64.encodestring(pickle.dumps(formula_structure.bind_variables))
-                formula_hash.update(serialised_bind_variables)
-                serialised_bind_variables = serialised_bind_variables.decode('ascii')
-                serialised_formula_structure = base64.encodestring(
-                    pickle.dumps(formula_structure.get_formula_instance())
-                )
-                formula_hash.update(serialised_formula_structure)
-                serialised_formula_structure = serialised_formula_structure.decode('ascii')
-                formula_hash = formula_hash.hexdigest()
-                serialised_atom_list = list(
-                    map(lambda item: base64.encodestring(pickle.dumps(item)).decode('ascii'), atoms)
-                )
-
-                # note that this also means giving an empty list [] will result in path instrumentation
-                # without property instrumentation
-                if EXPLANATION:
-                    logger.log("=" * 100)
-                    logger.log("Placing path recording instruments.")
-                    place_path_recording_instruments(scfg, instrument_function_qualifier, formula_hash)
-
-                # update the index -> hash map
-                index_to_hash.append(formula_hash)
-
-                if not TEARDOWN_ONCE:
-                    if TEST_AWARE == 'normal':
-                        create_teardown_method(asts,test_class_name,formula_hash,instrument_function_qualifier, TEST_AWARE)
-
-                    elif TEST_AWARE == 'flask':
-                        flask_test_file = inst_configuration.get("flask_test_folder")
-                        flask_test_file_without_extension = inst_configuration.get("flask_test_folder").replace('.py','')
-
-                        code = "".join(open(flask_test_file, "r").readlines())
-                        flask_test_file_ast = ast.parse(code)
-
-                        for node in flask_test_file_ast.body:
-                            if type(node) == ast.ClassDef:
-                                class_name = node.name
-                        create_teardown_method(flask_test_file_ast, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
-
-
-                        backup_flask_file_name = "%s.py.inst" % flask_test_file_without_extension
-                        flask_instrumented_code = compile(flask_test_file_ast,backup_flask_file_name ,"exec")
-
-                        # append an underscore to indicate that it's instrumented - removed for now
-                        flask_instrumented_file_name = "%s%s" % (flask_test_file_without_extension, BYTECODE_EXTENSION)
-                        with open(flask_instrumented_file_name, "wb") as h:
-                             h.write(py_compile.MAGIC)
-                             py_compile.wr_long(h, long(time.time()))
-                             marshal.dump(flask_instrumented_code, h)
-
-
-                    TEARDOWN_ONCE = True
-
-                print("FORMULA HASH")
-                print(formula_hash)
-                logger.log("with formula hash '%s'" % formula_hash)
-
-                # construct reachability of the SCFG
-                # and derive the binding space based on the formula
-
-                reachability_map = construct_reachability_map(scfg)
-                bindings = compute_binding_space(formula_structure, scfg, reachability_map)
-                print(bindings)
-
-                logger.log("Set of static bindings computed is")
-                logger.log(str(bindings))
-
-                # using these bindings, we now need to instrument the code
-                # and then store the (bind space index, bind var index, atom index)
-                # so the instrumentation mappings can be recovered at runtime without recomputation
-
-                static_qd_to_point_map = {}
-                vertices_to_triple_list = {}
-
-                # we attach indices to atoms because we need their index in the set of atoms
-                # of the relevant formula
-                initial_property_dict = {
-                    "formula_hash": formula_hash,
-                    "function": instrument_function_qualifier,
-                    "serialised_formula_structure": serialised_formula_structure,
-                    "serialised_bind_variables": serialised_bind_variables,
-                    "serialised_atom_list": list(enumerate(serialised_atom_list))
-                }
-
-                # send instrumentation data to the verdict database
-                try:
-                    logger.log(
-                        "Sending property with hash '%s' for function '%s' in module '%s' to server." %
-                        (formula_hash, function, module))
-                    response = str(post_to_verdict_server("store_property/", data=json.dumps(initial_property_dict)))
-                    response = json.loads(response)
-                    atom_index_to_db_index = response["atom_index_to_db_index"]
-                    function_id = response["function_id"]
-                except:
-                    logger.log("Unforeseen exception when sending property to verdict server:")
-                    logger.log(traceback.format_exc())
-                    logger.log(
-                        "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed."
-                        % VERDICT_SERVER_URL)
-                    exit()
-
-                logger.log("Processing set of static bindings:")
-
-                for (m, element) in enumerate(bindings):
-
-                    logger.log("Processing binding %s" % element)
-
-                    # send the binding to the verdict server
-
-                    line_numbers = []
-                    for el in element:
-                        if type(el) is CFGVertex:
-                            if el._name_changed != ["loop"]:
-                                line_numbers.append(el._previous_edge._instruction.lineno)
-                            else:
-                                line_numbers.append(el._structure_obj.lineno)
-                        else:
-                            line_numbers.append(el._instruction.lineno)
-
-                    binding_dictionary = {
-                        "binding_space_index": m,
-                        "function": function_id,
-                        "binding_statement_lines": line_numbers
-                    }
-                    serialised_binding_dictionary = json.dumps(binding_dictionary)
-                    try:
-                        binding_db_id = int(
-                            post_to_verdict_server("store_binding/", data=serialised_binding_dictionary))
-                    except:
-                        logger.log("Unforeseen exception when sending binding to verdict server:")
-                        logger.log(traceback.format_exc())
-                        logger.log(
-                            "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed."
-                            % VERDICT_SERVER_URL)
-                        exit()
-
-                    static_qd_to_point_map[m] = {}
-
-                    for (atom_index, atom) in enumerate(atoms):
-
-                        logger.log("Computing instrumentation points for atom %s." % atom)
-
-                        static_qd_to_point_map[m][atom_index] = {}
-
-                        if type(atom) in [formula_tree.StateValueEqualToMixed,
-                                          formula_tree.TransitionDurationLessThanTransitionDurationMixed,
-                                          formula_tree.TransitionDurationLessThanStateValueMixed,
-                                          formula_tree.TransitionDurationLessThanStateValueLengthMixed,
-                                          formula_tree.TimeBetweenInInterval,
-                                          formula_tree.TimeBetweenInOpenInterval]:
-
-                            # there may be multiple bind variables
-                            composition_sequences = derive_composition_sequence(atom)
-
-                            # get lhs and rhs bind variables
-                            lhs_comp_sequence = composition_sequences["lhs"]
-                            lhs_bind_variable = lhs_comp_sequence[-1]
-                            lhs_bind_variable_index = list(formula_structure._bind_variables).index(lhs_bind_variable)
-                            lhs_starting_point = element[lhs_bind_variable_index]
-
-                            rhs_comp_sequence = composition_sequences["rhs"]
-                            rhs_bind_variable = rhs_comp_sequence[-1]
-                            rhs_bind_variable_index = list(formula_structure._bind_variables).index(rhs_bind_variable)
-                            rhs_starting_point = element[rhs_bind_variable_index]
-
-                            lhs_moves = list(reversed(lhs_comp_sequence[1:-1]))
-                            rhs_moves = list(reversed(rhs_comp_sequence[1:-1]))
-
-                            lhs_instrumentation_points = get_instrumentation_points_from_comp_sequence(
-                                lhs_starting_point, lhs_moves)
-                            rhs_instrumentation_points = get_instrumentation_points_from_comp_sequence(
-                                rhs_starting_point, rhs_moves)
-
-                            # 0 and 1 are for lhs and rhs respectively
-                            static_qd_to_point_map[m][atom_index][0] = lhs_instrumentation_points
-                            static_qd_to_point_map[m][atom_index][1] = rhs_instrumentation_points
-
-                        else:
-
-                            # just one composition sequence, so one set of instrumentation points
-
-                            composition_sequence = derive_composition_sequence(atom)
-                            bind_variable = composition_sequence[-1]
-                            variable_index = list(formula_structure._bind_variables).index(bind_variable)
-                            value_from_binding = element[variable_index]
-                            moves = list(reversed(composition_sequence[1:-1]))
-                            instrumentation_points = get_instrumentation_points_from_comp_sequence(value_from_binding,
-                                                                                                   moves)
-
-                            # for simple atoms, there is no lhs and rhs so we just use 0
-                            static_qd_to_point_map[m][atom_index][0] = instrumentation_points
-
-                logger.log("Finished computing instrumentation points.  Result is:")
-                logger.log(static_qd_to_point_map)
-
-                # now, perform the instrumentation
-
-                # first step is to add triggers
-
-                logger.log("Inserting triggers.")
-
-                for (m, element) in enumerate(bindings):
-
-                    for bind_variable_index in range(len(formula_structure.bind_variables.keys())):
-
-                        logger.log("Adding trigger for static binding/bind variable %i/%i." % (m, bind_variable_index))
-
-                        point = element[bind_variable_index]
-
-                        instrument = "%s((\"%s\", \"trigger\", \"%s\", %i, %i))" % \
-                                     (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, m,
-                                      bind_variable_index)
-
-                        instrument_ast = ast.parse(instrument).body[0]
-                        if type(point) is CFGVertex:
-                            if point._name_changed == ["loop"]:
-                                # triggers for loop variables must be inserted inside the loop
-                                # so we instantiate a new monitor for every iteration
-                                for edge in point.edges:
-                                    if edge._condition == ["enter-loop"]:
-                                        instruction = edge._instruction
-                            else:
-                                instruction = point._previous_edge._instruction
-                        else:
-                            instruction = point._instruction
-
-                        lineno = instruction.lineno
-                        col_offset = instruction.col_offset
-
-                        index_in_block = instruction._parent_body.index(instruction)
-
-                        instrument_ast.lineno = instruction._parent_body[0].lineno
-
-                        # insert triggers before the things that will be measured
-                        instruction._parent_body.insert(index_in_block, instrument_ast)
-
-                # we then invert the map we constructed from triples to instrumentation points so that we can avoid
-                # overlap of instruments
-
-                logger.log("Inverting instrumentation structure ready for optimisations.")
-
-                point_to_triples = {}
-
-                for (m, element) in enumerate(bindings):
-                    for atom_index in static_qd_to_point_map[m].keys():
-                        for sub_index in static_qd_to_point_map[m][atom_index].keys():
-                            points = static_qd_to_point_map[m][atom_index][sub_index]
-                            for (n, point) in enumerate(points):
-
-                                if not (point_to_triples.get(point)):
-                                    point_to_triples[point] = {}
-
-                                atom_index_in_db = atom_index_to_db_index[atom_index]
-                                # for now, we don't need serialised_condition_sequence so we just use a blank string
-                                if type(point) is CFGVertex:
-                                    if point._name_changed == ["loop"]:
-                                        # find edge leading into loop body and use the path length for the destination
-                                        # state
-                                        for edge in point.edges:
-                                            if edge._condition == ["enter-loop"]:
-                                                reaching_path_length = edge._target_state._path_length
-                                    else:
-                                        reaching_path_length = point._path_length
-                                else:
-                                    reaching_path_length = point._target_state._path_length
-
-                                instrumentation_point_dictionary = {
-                                    "binding": binding_db_id,
-                                    # "serialised_condition_sequence": list(
-                                    #    map(pickle.dumps, point._previous_edge._condition
-                                    #    if type(point) is CFGVertex else point._condition)
-                                    # ),
-                                    "serialised_condition_sequence": "",
-                                    "reaching_path_length": reaching_path_length,
-                                    "atom": atom_index_to_db_index[atom_index]
-                                }
-                                serialised_dictionary = json.dumps(instrumentation_point_dictionary)
-                                try:
-                                    instrumentation_point_db_id = int(
-                                        post_to_verdict_server("store_instrumentation_point/",
-                                                               data=serialised_dictionary))
-                                except:
-                                    logger.log("Unforeseen exception when sending instrumentation point to verdict "
-                                               "server:")
-                                    logger.log(traceback.format_exc())
-                                    logger.log(
-                                        "There was a problem with the verdict server at '%s'.  Instrumentation cannot "
-                                        "be completed." % VERDICT_SERVER_URL)
-                                    exit()
-
-                                if not (point_to_triples[point].get(atom_index)):
-                                    point_to_triples[point][atom_index] = {}
-                                if not (point_to_triples[point][atom_index].get(sub_index)):
-                                    point_to_triples[point][atom_index][sub_index] = []
-
-                                point_to_triples[point][atom_index][sub_index].append([m, instrumentation_point_db_id])
-
-                logger.log("Placing instruments based on inversion.")
-
-                # we now insert the instruments
-
-                for point in point_to_triples.keys():
-                    logger.log("Placing instruments for point %s." % point)
-                    for atom_index in point_to_triples[point].keys():
-                        atom = atoms[atom_index]
-                        for atom_sub_index in point_to_triples[point][atom_index].keys():
-                            logger.log("Placing single instrument at %s for atom %s at index %i and sub index %i" % (
-                                point, atom, atom_index, atom_sub_index))
-                            list_of_lists = list(zip(*point_to_triples[point][atom_index][atom_sub_index]))
-
-                            # extract the parameters for this instrumentation point
-                            binding_space_indices = list_of_lists[0]
-                            instrumentation_point_db_ids = list_of_lists[1]
-
-                            if type(atom) is formula_tree.TransitionDurationInInterval:
-
-                                instrument_point_transition(atom, point, binding_space_indices, atom_index,
-                                                            atom_sub_index, instrumentation_point_db_ids)
-
-                            elif type(atom) in [formula_tree.StateValueInInterval, formula_tree.StateValueEqualTo,
-                                                formula_tree.StateValueInOpenInterval]:
-
-                                instrument_point_state(atom._state, atom._name, point, binding_space_indices,
-                                                       atom_index, atom_sub_index, instrumentation_point_db_ids)
-
-                            elif type(atom) is formula_tree.StateValueTypeEqualTo:
-
-                                instrument_point_state(atom._state, atom._name, point, binding_space_indices,
-                                                       atom_index, atom_sub_index, instrumentation_point_db_ids,
-                                                       measure_attribute="type")
-
-                            elif type(atom) in [formula_tree.StateValueLengthInInterval]:
-                                """
-                                Instrumentation for the length of a value given is different
-                                because we have to add len() to the instrument.
-                                """
-
-                                instrument_point_state(atom._state, atom._name, point, binding_space_indices,
-                                                       atom_index, atom_sub_index, instrumentation_point_db_ids,
-                                                       measure_attribute="length")
-
-                            elif type(atom) in [formula_tree.StateValueEqualToMixed]:
-                                """We're instrumenting multiple states, so we need to perform instrumentation on two 
-                                separate points. """
-
-                                # for each side of the atom (LHS and RHS), instrument the necessary points
-
-                                logger.log(
-                                    "instrumenting for a mixed atom %s with sub atom index %i" % (atom, atom_sub_index)
-                                )
-
-                                if atom_sub_index == 0:
-                                    # we're instrumenting for the lhs
-                                    logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
-                                    instrument_point_state(atom._lhs, atom._lhs_name, point, binding_space_indices,
-                                                           atom_index, atom_sub_index, instrumentation_point_db_ids)
-                                else:
-                                    # we're instrumenting for the rhs
-                                    logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
-                                    instrument_point_state(atom._rhs, atom._rhs_name, point, binding_space_indices,
-                                                           atom_index, atom_sub_index, instrumentation_point_db_ids)
-
-                            elif type(atom) is formula_tree.TransitionDurationLessThanTransitionDurationMixed:
-                                """We're instrumenting multiple transitions, so we need to perform instrumentation on 
-                                two separate points. """
-
-                                # for each side of the atom (LHS and RHS), instrument the necessary points
-
-                                logger.log(
-                                    "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
-                                )
-
-                                if atom_sub_index == 0:
-                                    # we're instrumenting for the lhs
-                                    logger.log("placing lhs instrument for scfg object %s" % atom._lhs)
-                                    instrument_point_transition(atom, point, binding_space_indices,
-                                                                atom_index, atom_sub_index,
-                                                                instrumentation_point_db_ids)
-                                else:
-                                    # we're instrumenting for the rhs
-                                    logger.log("placing rhs instrument for scfg object %s" % atom._rhs)
-                                    instrument_point_transition(atom, point, binding_space_indices,
-                                                                atom_index, atom_sub_index,
-                                                                instrumentation_point_db_ids)
-
-                            elif type(atom) is formula_tree.TransitionDurationLessThanStateValueMixed:
-                                """We're instrumenting multiple transitions, so we need to perform instrumentation on 
-                                two separate points. """
-
-                                # for each side of the atom (LHS and RHS), instrument the necessary points
-
-                                logger.log(
-                                    "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
-                                )
-
-                                if atom_sub_index == 0:
-                                    # we're instrumenting for the lhs
-                                    logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
-                                    instrument_point_transition(atom, point, binding_space_indices,
-                                                                atom_index, atom_sub_index,
-                                                                instrumentation_point_db_ids)
-                                else:
-                                    # we're instrumenting for the rhs
-                                    logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
-                                    instrument_point_state(atom._rhs, atom._rhs_name, point, binding_space_indices,
-                                                           atom_index, atom_sub_index, instrumentation_point_db_ids)
-
-                            elif type(atom) is formula_tree.TransitionDurationLessThanStateValueLengthMixed:
-                                """We're instrumenting multiple transitions, so we need to perform instrumentation on 
-                                two separate points. """
-
-                                # for each side of the atom (LHS and RHS), instrument the necessary points
-
-                                logger.log(
-                                    "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
-                                )
-
-                                if atom_sub_index == 0:
-                                    # we're instrumenting for the lhs
-                                    logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
-                                    instrument_point_transition(atom, point, binding_space_indices,
-                                                                atom_index, atom_sub_index,
-                                                                instrumentation_point_db_ids)
-                                else:
-                                    # we're instrumenting for the rhs
-                                    logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
-                                    instrument_point_state(atom._rhs, atom._rhs_name, point, binding_space_indices,
-                                                           atom_index, atom_sub_index, instrumentation_point_db_ids,
-                                                           measure_attribute="length")
-
-                            elif type(atom) in [formula_tree.TimeBetweenInInterval,
-                                                formula_tree.TimeBetweenInOpenInterval]:
-                                """We're instrumenting multiple transitions, so we need to perform instrumentation on 
-                                two separate points. """
-
-                                # for each side of the atom (LHS and RHS), instrument the necessary points
-
-                                logger.log(
-                                    "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
-                                )
-
-                                if atom_sub_index == 0:
-                                    # we're instrumenting for the lhs
-                                    logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
-                                    instrument_point_state(atom._lhs, None, point, binding_space_indices,
-                                                           atom_index, atom_sub_index, instrumentation_point_db_ids,
-                                                           measure_attribute="time_attained")
-                                else:
-                                    # we're instrumenting for the rhs
-                                    logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
-                                    instrument_point_state(atom._rhs, None, point, binding_space_indices,
-                                                           atom_index, atom_sub_index, instrumentation_point_db_ids,
-                                                           measure_attribute="time_attained")
-
-                if EXPLANATION:
-                    print("=" * 100)
-                    print("INSTRUMENTING FOR EXPLANATION")
-
-                    pprint.pprint(scfg.branch_initial_statements)
-
-                    # if explanation was turned on in the configuration file, insert path instruments.
-
-                    # insert path recording instruments - these don't depend on the formula being checked so
-                    # this is done independent of binding space computation
-                    for vertex_information in scfg.branch_initial_statements:
-                        print("-" * 100)
-                        if vertex_information[0] in ['conditional', 'try-catch']:
-                            if vertex_information[0] == 'conditional':
-                                print(
-                                    "Placing branch recording instrument for conditional with first instruction %s in block" %
-                                    vertex_information[1])
-                                # instrument_code = "print(\"appending path condition %s inside conditional\")" % vertex_information[2]
-                                # send branching condition to verdict server, take the ID from the response and use it in the path recording instruments.
-                                condition_dict = {
-                                    "serialised_condition": pickle.dumps(vertex_information[2])
-                                }
-                            else:
-                                print(
-                                    "Placing branch recording instrument for try-catch with first instruction %s in block" %
-                                    vertex_information[1])
-                                # send branching condition to verdict server, take the ID from the response and use it in the path recording instruments.
-                                condition_dict = {
-                                    "serialised_condition": vertex_information[2]
-                                }
-                            # if the condition already exists in the database, the verdict server will return the existing ID
-                            try:
-                                branching_condition_id = int(post_to_verdict_server("store_branching_condition/",
-                                                                                    data=json.dumps(condition_dict)))
-                            except:
-                                print(
-                                    "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
-                                exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
-                            instrument_ast = ast.parse(instrument_code).body[0]
-                            """instrument_ast.lineno = vertex_information[1]._parent_body[0].lineno
-                            instrument_ast.col_offset = vertex_information[1]._parent_body[0].col_offset"""
-                            index_in_parent = vertex_information[1]._parent_body.index(vertex_information[1])
-                            vertex_information[1]._parent_body.insert(index_in_parent, instrument_ast)
-                            print("Branch recording instrument placed")
-                        elif vertex_information[0] == "conditional-no-else":
-                            # no else was present in the conditional, so we add a path recording instrument
-                            # to the else block
-                            print("Placing branch recording instrument for conditional with no else")
-                            # send branching condition to verdict server, take the ID from the response and use it in the path recording instruments.
-                            condition_dict = {
-                                "serialised_condition": pickle.dumps(vertex_information[2])
-                            }
-                            # if the condition already exists in the database, the verdict server will return the existing ID
-                            try:
-                                branching_condition_id = int(post_to_verdict_server("store_branching_condition/",
-                                                                                    data=json.dumps(condition_dict)))
-                            except:
-                                print(
-                                    "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
-                                exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
-                            instrument_ast = ast.parse(instrument_code).body[0]
-                            vertex_information[1].orelse.insert(0, instrument_ast)
-                            print("Branch recording instrument placed")
-                        elif vertex_information[0] in ['post-conditional', 'post-try-catch']:
-                            if vertex_information[0] == 'post-conditional':
-                                print("Processing post conditional path instrument")
-                                print(vertex_information)
-                                # need this to decide if we've left a conditional, since paths lengths reset after conditionals
-                                print(
-                                    "Placing branch recording instrument for end of conditional at %s - %i in parent block - line no %i" % \
-                                    (vertex_information[1],
-                                     vertex_information[1]._parent_body.index(vertex_information[1]),
-                                     vertex_information[1].lineno))
-
-                                condition_dict = {
-                                    "serialised_condition": "conditional exited"
-                                }
-                            else:
-                                print("Processing post try-catch path instrument")
-                                print(vertex_information)
-                                # need this to decide if we've left a conditional, since paths lengths reset after conditionals
-                                print(
-                                    "Placing branch recording instrument for end of try-catch at %s - %i in parent block - line no %i" % \
-                                    (vertex_information[1],
-                                     vertex_information[1]._parent_body.index(vertex_information[1]),
-                                     vertex_information[1].lineno))
-
-                                condition_dict = {
-                                    "serialised_condition": "try-catch exited"
-                                }
-                            try:
-                                branching_condition_id = int(post_to_verdict_server("store_branching_condition/",
-                                                                                    data=json.dumps(condition_dict)))
-                            except:
-                                print(
-                                    "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
-                                exit()
-                            instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
-                            instrument_code_ast = ast.parse(instrument_code).body[0]
-                            """instrument_code_ast.lineno = vertex_information[1].lineno+1
-                            instrument_code_ast.col_offset = vertex_information[1].col_offset"""
-
-                            index_in_parent = vertex_information[1]._parent_body.index(vertex_information[1]) + 1
-                            print(vertex_information[1]._parent_body)
-                            print(index_in_parent)
-                            vertex_information[1]._parent_body.insert(index_in_parent, instrument_code_ast)
-                            print(vertex_information[1]._parent_body)
-                        elif vertex_information[0] == 'loop':
-                            print("Placing branch recording instrument for loop with first instruction %s in body" %
-                                  vertex_information[1])
-                            condition_dict = {
-                                "serialised_condition": pickle.dumps(vertex_information[2])
-                            }
-                            # if the condition already exists in the database, the verdict server will return the existing ID
-                            try:
-                                branching_condition_id = int(post_to_verdict_server("store_branching_condition/",
-                                                                                    data=json.dumps(condition_dict)))
-                            except:
-                                print(
-                                    "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
-                                exit()
-                            instrument_code_inside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
-                            instrument_inside_loop_ast = ast.parse(instrument_code_inside_loop).body[0]
-                            """instrument_inside_loop_ast.lineno = vertex_information[1].lineno
-                            instrument_inside_loop_ast.col_offset = vertex_information[1].col_offset"""
-
-                            condition_dict = {
-                                "serialised_condition": pickle.dumps(vertex_information[4])
-                            }
-                            # if the condition already exists in the database, the verdict server will return the existing ID
-                            try:
-                                branching_condition_id = int(post_to_verdict_server("store_branching_condition/",
-                                                                                    data=json.dumps(condition_dict)))
-                            except:
-                                print(
-                                    "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed." % VERDICT_SERVER_URL)
-                                exit()
-                            instrument_code_outside_loop = "%s((\"%s\", \"path\", \"%s\", %i))" % (
-                                VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                branching_condition_id)
-                            instrument_outside_loop_ast = ast.parse(instrument_code_outside_loop).body[0]
-                            """instrument_outside_loop_ast.lineno = vertex_information[3].lineno+1
-                            instrument_outside_loop_ast.col_offset = vertex_information[3].col_offset"""
-
-                            # insert at beginning of loop body
-                            inside_index_in_parent = vertex_information[1]._parent_body.index(vertex_information[1])
-                            # insert just after loop body
-                            outside_index_in_parent = vertex_information[3]._parent_body.index(
-                                vertex_information[3]) + 1
-
-                            vertex_information[1]._parent_body.insert(inside_index_in_parent,
-                                                                      instrument_inside_loop_ast)
-                            vertex_information[3]._parent_body.insert(outside_index_in_parent,
-                                                                      instrument_outside_loop_ast)
-                            print("Branch recording instrument for conditional placed")
-
-                    print("=" * 100)
-
-                # finally, insert an instrument at the beginning to tell the monitoring thread that a new call of the function has started
-                # and insert one at the end to signal a return
-
-                # NOTE: only problem with this is that the "end" instrument is inserted before the return,
-                # so a function call in the return statement maybe missed if it's part of verification...
-                thread_id_capture = "import threading; __thread_id = threading.current_thread().ident;"
-                #start_instrument = "%s((\"%s\", \"function\", \"%s\", \"start\", flask.g.request_time, \"%s\", __thread_id))" \
-                #                   % (
-                #                       VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                #                       formula_hash)
-
-                start_instrument = "%s((\"%s\", \"function\", \"%s\", \"start\", datetime.datetime.now(), \"%s\", __thread_id))" \
-                                  % (
-                                        VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-                                        formula_hash)
-
-
-                threading_import_ast = ast.parse(thread_id_capture).body[0]
-                thread_id_capture_ast = ast.parse(thread_id_capture).body[1]
-                start_ast = ast.parse(start_instrument).body[0]
-
-                print("inserting scope instruments with line number ", function_def.body[0].lineno)
-
-                print(function_def.body)
-
-                threading_import_ast.lineno = function_def.body[0].lineno
-                thread_id_capture_ast.lineno = function_def.body[0].lineno
-                start_ast.lineno = function_def.body[0].lineno
-
-                """threading_import_ast.lineno = function_def.body[0].lineno
-                threading_import_ast.col_offset = function_def.body[0].col_offset
-                thread_id_capture_ast.lineno = function_def.body[0].lineno
-                thread_id_capture_ast.col_offset = function_def.body[0].col_offset
-                start_ast.lineno = function_def.body[0].lineno
-                start_ast.col_offset = function_def.body[0].col_offset"""
-
-                function_def.body.insert(0, start_ast)
-                function_def.body.insert(0, thread_id_capture_ast)
-                function_def.body.insert(0, threading_import_ast)
-
-                print(function_def.body)
-
-                # insert the end instrument before every return statement
-                for end_vertex in scfg.return_statements:
-                    end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", %r, flask.g.request_time, \"%s\", __thread_id, \"%s\"))" \
-                                     % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, detect_testing_frameworks(asts),
-                                        formula_hash, TEST_AWARE)
-
-
-
-                    end_ast = ast.parse(end_instrument).body[0]
-
-                    """end_ast.lineno = end_vertex._previous_edge._instruction.lineno
-                    end_ast.col_offset = end_vertex._previous_edge._instruction.col_offset"""
-
-                    end_ast.lineno = end_vertex._previous_edge._instruction._parent_body[-1].lineno
-
-                    print("inserting end instrument at line %i" % end_ast.lineno)
-
-                    insertion_position = len(end_vertex._previous_edge._instruction._parent_body) - 1
-
-                    end_vertex._previous_edge._instruction._parent_body.insert(insertion_position, end_ast)
-
-                    print(end_vertex._previous_edge._instruction._parent_body)
-
-                # if the last instruction in the ast is not a return statement, add an end instrument at the end
-                if not (type(function_def.body[-1]) is ast.Return):
-               #     end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", flask.g.request_time, \"%s\"))" \
-               #                      % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
-               #                         formula_hash)
-
-                    end_instrument = "%s((\"%s\", \"function\", \"%s\", \"end\", %r ,datetime.datetime.now(), \"%s\", __thread_id, \"%s\"))" \
-                                % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,detect_testing_frameworks(asts),
-                                   formula_hash, TEST_AWARE)
-                    end_ast = ast.parse(end_instrument).body[0]
-
-                    function_def.body.insert(len(function_def.body), end_ast)
-                # finally, insert an instrument at the beginning to tell the monitoring thread that a new call of the
-                # function has started and insert one at the end to signal a return
-                # also insert instruments at the end(s) of the function
-                place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier)
-
-                # write the instrumented scfg to a file
-                instrumented_scfg = CFG()
-                instrumented_scfg.process_block(top_level_block)
-                write_scfg_to_file(instrumented_scfg, "%s-%s-%s-instrumented.gv" %
-                                   (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
-                                    function.replace(".", "-")))
-
-                # check for existence of directories for intermediate data and create them if not found
-                if not (os.path.isdir("binding_spaces")):
-                    os.mkdir("binding_spaces")
-                if not (os.path.isdir("index_hash")):
-                    os.mkdir("index_hash")
-
-                # pickle binding space
-                pickled_binding_space = pickle.dumps(bindings)
-
-                # write to a file
-                binding_space_dump_file = "binding_spaces/module-%s-function-%s-property-%s.dump" % \
-                                          (module.replace(".", "-"), function.replace(".", "-"), formula_hash)
-                with open(binding_space_dump_file, "wb") as h:
-                    h.write(pickled_binding_space)
-
-                # write the index to hash mapping for properties
-                pickled_index_hash = pickle.dumps(index_to_hash)
-                index_to_hash_dump_file = "index_hash/module-%s-function-%s.dump" % \
-                                          (module.replace(".", "-"), function.replace(".", "-"))
-                with open(index_to_hash_dump_file, "wb") as h:
-                    h.write(pickled_index_hash)
-
-        compile_bytecode_and_write(asts, file_name_without_extension)
+           # for each property, instrument the function for that property
+
+           for (formula_index, formula_structure) in enumerate(verification_conf[module][function]):
+
+               logger.log("Instrumenting for PyCFTL formula %s" % formula_structure)
+
+               # we should be able to use the same scfg for each stage of instrumentation,
+               # since when we insert instruments we recompute the position of the instrumented instruction
+
+               atoms = formula_structure._formula_atoms
+
+               formula_hash = hashlib.sha1()
+               serialised_bind_variables = base64.encodestring(pickle.dumps(formula_structure.bind_variables))
+               formula_hash.update(serialised_bind_variables)
+               serialised_bind_variables = serialised_bind_variables.decode('ascii')
+               serialised_formula_structure = base64.encodestring(
+                   pickle.dumps(formula_structure.get_formula_instance())
+               )
+               formula_hash.update(serialised_formula_structure)
+               serialised_formula_structure = serialised_formula_structure.decode('ascii')
+               formula_hash = formula_hash.hexdigest()
+               serialised_atom_list = list(
+                   map(lambda item: base64.encodestring(pickle.dumps(item)).decode('ascii'), atoms)
+               )
+
+               # note that this also means giving an empty list [] will result in path instrumentation
+               # without property instrumentation
+               if EXPLANATION:
+                   logger.log("=" * 100)
+                   logger.log("Placing path recording instruments.")
+                   place_path_recording_instruments(scfg, instrument_function_qualifier, formula_hash)
+
+               # update the index -> hash map
+               index_to_hash.append(formula_hash)
+
+               logger.log("with formula hash '%s'" % formula_hash)
+
+               # construct reachability of the SCFG
+               # and derive the binding space based on the formula
+
+               reachability_map = construct_reachability_map(scfg)
+               bindings = compute_binding_space(formula_structure, scfg, reachability_map)
+               print(bindings)
+
+               logger.log("Set of static bindings computed is")
+               logger.log(str(bindings))
+
+               # using these bindings, we now need to instrument the code
+               # and then store the (bind space index, bind var index, atom index)
+               # so the instrumentation mappings can be recovered at runtime without recomputation
+
+               static_qd_to_point_map = {}
+               vertices_to_triple_list = {}
+
+               # we attach indices to atoms because we need their index in the set of atoms
+               # of the relevant formula
+               initial_property_dict = {
+                   "formula_hash": formula_hash,
+                   "function": instrument_function_qualifier,
+                   "serialised_formula_structure": serialised_formula_structure,
+                   "serialised_bind_variables": serialised_bind_variables,
+                   "serialised_atom_list": list(enumerate(serialised_atom_list))
+               }
+
+               # send instrumentation data to the verdict database
+               try:
+                   logger.log(
+                       "Sending property with hash '%s' for function '%s' in module '%s' to server." %
+                       (formula_hash, function, module))
+                   response = str(post_to_verdict_server("store_property/", data=json.dumps(initial_property_dict)))
+                   response = json.loads(response)
+                   atom_index_to_db_index = response["atom_index_to_db_index"]
+                   function_id = response["function_id"]
+               except:
+                   logger.log("Unforeseen exception when sending property to verdict server:")
+                   logger.log(traceback.format_exc())
+                   logger.log(
+                       "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed."
+                       % VERDICT_SERVER_URL)
+                   exit()
+
+               logger.log("Processing set of static bindings:")
+
+               for (m, element) in enumerate(bindings):
+
+                   logger.log("Processing binding %s" % element)
+
+                   # send the binding to the verdict server
+
+                   line_numbers = []
+                   for el in element:
+                       if type(el) is CFGVertex:
+                           if el._name_changed != ["loop"]:
+                               line_numbers.append(el._previous_edge._instruction.lineno)
+                           else:
+                               line_numbers.append(el._structure_obj.lineno)
+                       else:
+                           line_numbers.append(el._instruction.lineno)
+
+                   binding_dictionary = {
+                       "binding_space_index": m,
+                       "function": function_id,
+                       "binding_statement_lines": line_numbers
+                   }
+                   serialised_binding_dictionary = json.dumps(binding_dictionary)
+                   try:
+                       binding_db_id = int(
+                           post_to_verdict_server("store_binding/", data=serialised_binding_dictionary))
+                   except:
+                       logger.log("Unforeseen exception when sending binding to verdict server:")
+                       logger.log(traceback.format_exc())
+                       logger.log(
+                           "There was a problem with the verdict server at '%s'.  Instrumentation cannot be completed."
+                           % VERDICT_SERVER_URL)
+                       exit()
+
+                   static_qd_to_point_map[m] = {}
+
+                   for (atom_index, atom) in enumerate(atoms):
+
+                       logger.log("Computing instrumentation points for atom %s." % atom)
+
+                       static_qd_to_point_map[m][atom_index] = {}
+
+                       if type(atom) in [formula_tree.StateValueEqualToMixed,
+                                         formula_tree.TransitionDurationLessThanTransitionDurationMixed,
+                                         formula_tree.TransitionDurationLessThanStateValueMixed,
+                                         formula_tree.TransitionDurationLessThanStateValueLengthMixed,
+                                         formula_tree.TimeBetweenInInterval,
+                                         formula_tree.TimeBetweenInOpenInterval]:
+
+                           # there may be multiple bind variables
+                           composition_sequences = derive_composition_sequence(atom)
+
+                           # get lhs and rhs bind variables
+                           lhs_comp_sequence = composition_sequences["lhs"]
+                           lhs_bind_variable = lhs_comp_sequence[-1]
+                           lhs_bind_variable_index = list(formula_structure._bind_variables).index(lhs_bind_variable)
+                           lhs_starting_point = element[lhs_bind_variable_index]
+
+                           rhs_comp_sequence = composition_sequences["rhs"]
+                           rhs_bind_variable = rhs_comp_sequence[-1]
+                           rhs_bind_variable_index = list(formula_structure._bind_variables).index(rhs_bind_variable)
+                           rhs_starting_point = element[rhs_bind_variable_index]
+
+                           lhs_moves = list(reversed(lhs_comp_sequence[1:-1]))
+                           rhs_moves = list(reversed(rhs_comp_sequence[1:-1]))
+
+                           lhs_instrumentation_points = get_instrumentation_points_from_comp_sequence(
+                               lhs_starting_point, lhs_moves)
+                           rhs_instrumentation_points = get_instrumentation_points_from_comp_sequence(
+                               rhs_starting_point, rhs_moves)
+
+                           # 0 and 1 are for lhs and rhs respectively
+                           static_qd_to_point_map[m][atom_index][0] = lhs_instrumentation_points
+                           static_qd_to_point_map[m][atom_index][1] = rhs_instrumentation_points
+
+                       else:
+
+                           # just one composition sequence, so one set of instrumentation points
+
+                           composition_sequence = derive_composition_sequence(atom)
+                           bind_variable = composition_sequence[-1]
+                           variable_index = list(formula_structure._bind_variables).index(bind_variable)
+                           value_from_binding = element[variable_index]
+                           moves = list(reversed(composition_sequence[1:-1]))
+                           instrumentation_points = get_instrumentation_points_from_comp_sequence(value_from_binding,
+                                                                                                  moves)
+
+                           # for simple atoms, there is no lhs and rhs so we just use 0
+                           static_qd_to_point_map[m][atom_index][0] = instrumentation_points
+
+               logger.log("Finished computing instrumentation points.  Result is:")
+               logger.log(static_qd_to_point_map)
+
+               # now, perform the instrumentation
+
+               # first step is to add triggers
+
+               logger.log("Inserting triggers.")
+
+               for (m, element) in enumerate(bindings):
+
+                   for bind_variable_index in range(len(formula_structure.bind_variables.keys())):
+
+                       logger.log("Adding trigger for static binding/bind variable %i/%i." % (m, bind_variable_index))
+
+                       point = element[bind_variable_index]
+
+                       instrument = "%s((\"%s\", \"trigger\", \"%s\", %i, %i))" % \
+                                    (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, m,
+                                     bind_variable_index)
+
+                       instrument_ast = ast.parse(instrument).body[0]
+                       if type(point) is CFGVertex:
+                           if point._name_changed == ["loop"]:
+                               # triggers for loop variables must be inserted inside the loop
+                               # so we instantiate a new monitor for every iteration
+                               for edge in point.edges:
+                                   if edge._condition == ["enter-loop"]:
+                                       instruction = edge._instruction
+                           else:
+                               instruction = point._previous_edge._instruction
+                       else:
+                           instruction = point._instruction
+
+                       lineno = instruction.lineno
+                       col_offset = instruction.col_offset
+
+                       index_in_block = instruction._parent_body.index(instruction)
+
+                       instrument_ast.lineno = instruction._parent_body[0].lineno
+
+                       # insert triggers before the things that will be measured
+                       instruction._parent_body.insert(index_in_block, instrument_ast)
+
+               # we then invert the map we constructed from triples to instrumentation points so that we can avoid
+               # overlap of instruments
+
+               logger.log("Inverting instrumentation structure ready for optimisations.")
+
+               point_to_triples = {}
+
+               for (m, element) in enumerate(bindings):
+                   for atom_index in static_qd_to_point_map[m].keys():
+                       for sub_index in static_qd_to_point_map[m][atom_index].keys():
+                           points = static_qd_to_point_map[m][atom_index][sub_index]
+                           for (n, point) in enumerate(points):
+
+                               if not (point_to_triples.get(point)):
+                                   point_to_triples[point] = {}
+
+                               atom_index_in_db = atom_index_to_db_index[atom_index]
+                               # for now, we don't need serialised_condition_sequence so we just use a blank string
+                               if type(point) is CFGVertex:
+                                   if point._name_changed == ["loop"]:
+                                       # find edge leading into loop body and use the path length for the destination
+                                       # state
+                                       for edge in point.edges:
+                                           if edge._condition == ["enter-loop"]:
+                                               reaching_path_length = edge._target_state._path_length
+                                   else:
+                                       reaching_path_length = point._path_length
+                               else:
+                                   reaching_path_length = point._target_state._path_length
+
+                               instrumentation_point_dictionary = {
+                                   "binding": binding_db_id,
+                                   # "serialised_condition_sequence": list(
+                                   #    map(pickle.dumps, point._previous_edge._condition
+                                   #    if type(point) is CFGVertex else point._condition)
+                                   # ),
+                                   "serialised_condition_sequence": "",
+                                   "reaching_path_length": reaching_path_length,
+                                   "atom": atom_index_to_db_index[atom_index]
+                               }
+                               serialised_dictionary = json.dumps(instrumentation_point_dictionary)
+                               try:
+                                   instrumentation_point_db_id = int(
+                                       post_to_verdict_server("store_instrumentation_point/",
+                                                              data=serialised_dictionary))
+                               except:
+                                   logger.log("Unforeseen exception when sending instrumentation point to verdict "
+                                              "server:")
+                                   logger.log(traceback.format_exc())
+                                   logger.log(
+                                       "There was a problem with the verdict server at '%s'.  Instrumentation cannot "
+                                       "be completed." % VERDICT_SERVER_URL)
+                                   exit()
+
+                               if not (point_to_triples[point].get(atom_index)):
+                                   point_to_triples[point][atom_index] = {}
+                               if not (point_to_triples[point][atom_index].get(sub_index)):
+                                   point_to_triples[point][atom_index][sub_index] = []
+
+                               point_to_triples[point][atom_index][sub_index].append([m, instrumentation_point_db_id])
+
+               logger.log("Placing instruments based on inversion.")
+
+               # we now insert the instruments
+
+               for point in point_to_triples.keys():
+                   logger.log("Placing instruments for point %s." % point)
+                   for atom_index in point_to_triples[point].keys():
+                       atom = atoms[atom_index]
+                       for atom_sub_index in point_to_triples[point][atom_index].keys():
+                           logger.log("Placing single instrument at %s for atom %s at index %i and sub index %i" % (
+                               point, atom, atom_index, atom_sub_index))
+                           list_of_lists = list(zip(*point_to_triples[point][atom_index][atom_sub_index]))
+
+                           # extract the parameters for this instrumentation point
+                           binding_space_indices = list_of_lists[0]
+                           instrumentation_point_db_ids = list_of_lists[1]
+
+                           if type(atom) is formula_tree.TransitionDurationInInterval:
+
+                               instrument_point_transition(atom, point, binding_space_indices, atom_index,
+                                                           atom_sub_index, instrumentation_point_db_ids)
+
+                           elif type(atom) in [formula_tree.StateValueInInterval, formula_tree.StateValueEqualTo,
+                                               formula_tree.StateValueInOpenInterval]:
+
+                               instrument_point_state(atom._state, atom._name, point, binding_space_indices,
+                                                      atom_index, atom_sub_index, instrumentation_point_db_ids)
+
+                           elif type(atom) is formula_tree.StateValueTypeEqualTo:
+
+                               instrument_point_state(atom._state, atom._name, point, binding_space_indices,
+                                                      atom_index, atom_sub_index, instrumentation_point_db_ids,
+                                                      measure_attribute="type")
+
+                           elif type(atom) in [formula_tree.StateValueLengthInInterval]:
+                               """
+							   Instrumentation for the length of a value given is different
+							   because we have to add len() to the instrument.
+							   """
+
+                               instrument_point_state(atom._state, atom._name, point, binding_space_indices,
+                                                      atom_index, atom_sub_index, instrumentation_point_db_ids,
+                                                      measure_attribute="length")
+
+                           elif type(atom) in [formula_tree.StateValueEqualToMixed]:
+                               """We're instrumenting multiple states, so we need to perform instrumentation on two 
+							   separate points. """
+
+                               # for each side of the atom (LHS and RHS), instrument the necessary points
+
+                               logger.log(
+                                   "instrumenting for a mixed atom %s with sub atom index %i" % (atom, atom_sub_index)
+                               )
+
+                               if atom_sub_index == 0:
+                                   # we're instrumenting for the lhs
+                                   logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
+                                   instrument_point_state(atom._lhs, atom._lhs_name, point, binding_space_indices,
+                                                          atom_index, atom_sub_index, instrumentation_point_db_ids)
+                               else:
+                                   # we're instrumenting for the rhs
+                                   logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
+                                   instrument_point_state(atom._rhs, atom._rhs_name, point, binding_space_indices,
+                                                          atom_index, atom_sub_index, instrumentation_point_db_ids)
+
+                           elif type(atom) is formula_tree.TransitionDurationLessThanTransitionDurationMixed:
+                               """We're instrumenting multiple transitions, so we need to perform instrumentation on 
+							   two separate points. """
+
+                               # for each side of the atom (LHS and RHS), instrument the necessary points
+
+                               logger.log(
+                                   "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
+                               )
+
+                               if atom_sub_index == 0:
+                                   # we're instrumenting for the lhs
+                                   logger.log("placing lhs instrument for scfg object %s" % atom._lhs)
+                                   instrument_point_transition(atom, point, binding_space_indices,
+                                                               atom_index, atom_sub_index,
+                                                               instrumentation_point_db_ids)
+                               else:
+                                   # we're instrumenting for the rhs
+                                   logger.log("placing rhs instrument for scfg object %s" % atom._rhs)
+                                   instrument_point_transition(atom, point, binding_space_indices,
+                                                               atom_index, atom_sub_index,
+                                                               instrumentation_point_db_ids)
+
+                           elif type(atom) is formula_tree.TransitionDurationLessThanStateValueMixed:
+                               """We're instrumenting multiple transitions, so we need to perform instrumentation on 
+							   two separate points. """
+
+                               # for each side of the atom (LHS and RHS), instrument the necessary points
+
+                               logger.log(
+                                   "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
+                               )
+
+                               if atom_sub_index == 0:
+                                   # we're instrumenting for the lhs
+                                   logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
+                                   instrument_point_transition(atom, point, binding_space_indices,
+                                                               atom_index, atom_sub_index,
+                                                               instrumentation_point_db_ids)
+                               else:
+                                   # we're instrumenting for the rhs
+                                   logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
+                                   instrument_point_state(atom._rhs, atom._rhs_name, point, binding_space_indices,
+                                                          atom_index, atom_sub_index, instrumentation_point_db_ids)
+
+                           elif type(atom) is formula_tree.TransitionDurationLessThanStateValueLengthMixed:
+                               """We're instrumenting multiple transitions, so we need to perform instrumentation on 
+							   two separate points. """
+
+                               # for each side of the atom (LHS and RHS), instrument the necessary points
+
+                               logger.log(
+                                   "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
+                               )
+
+                               if atom_sub_index == 0:
+                                   # we're instrumenting for the lhs
+                                   logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
+                                   instrument_point_transition(atom, point, binding_space_indices,
+                                                               atom_index, atom_sub_index,
+                                                               instrumentation_point_db_ids)
+                               else:
+                                   # we're instrumenting for the rhs
+                                   logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
+                                   instrument_point_state(atom._rhs, atom._rhs_name, point, binding_space_indices,
+                                                          atom_index, atom_sub_index, instrumentation_point_db_ids,
+                                                          measure_attribute="length")
+
+                           elif type(atom) in [formula_tree.TimeBetweenInInterval,
+                                               formula_tree.TimeBetweenInOpenInterval]:
+                               """We're instrumenting multiple transitions, so we need to perform instrumentation on 
+							   two separate points. """
+
+                               # for each side of the atom (LHS and RHS), instrument the necessary points
+
+                               logger.log(
+                                   "Instrumenting for a mixed atom %s with sub atom index %i." % (atom, atom_sub_index)
+                               )
+
+                               if atom_sub_index == 0:
+                                   # we're instrumenting for the lhs
+                                   logger.log("Placing left-hand-side instrument for SCFG object %s." % atom._lhs)
+                                   instrument_point_state(atom._lhs, None, point, binding_space_indices,
+                                                          atom_index, atom_sub_index, instrumentation_point_db_ids,
+                                                          measure_attribute="time_attained")
+                               else:
+                                   # we're instrumenting for the rhs
+                                   logger.log("Placing right-hand-side instrument for SCFG object %s." % atom._rhs)
+                                   instrument_point_state(atom._rhs, None, point, binding_space_indices,
+                                                          atom_index, atom_sub_index, instrumentation_point_db_ids,
+                                                          measure_attribute="time_attained")
+
+               # finally, insert an instrument at the beginning to tell the monitoring thread that a new call of the
+               # function has started and insert one at the end to signal a return
+               place_function_begin_instruments(function_def, formula_hash, instrument_function_qualifier)
+               # also insert instruments at the end(s) of the function
+               place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier,TEST_AWARE)
+
+
+
+
+               if TEST_AWARE == 'flask':
+                       flask_test_file = inst_configuration.get("flask_test_folder")
+                       flask_test_file_without_extension = inst_configuration.get("flask_test_folder").replace('.py','')
+
+                       code = "".join(open(flask_test_file, "r").readlines())
+                       flask_test_file_ast = ast.parse(code)
+
+
+                       # add vypr datetime import
+                       vypr_datetime_import = "from datetime import datetime as vypr_dt"
+                       datetime_import_ast = ast.parse(vypr_datetime_import).body[0]
+                       datetime_import_ast.lineno = asts.body[0].lineno
+                       datetime_import_ast.col_offset = asts.body[0].col_offset
+                       flask_test_file_ast.body.insert(0, datetime_import_ast)
+
+                       if detect_testing_frameworks(flask_test_file_ast):
+
+                           for node in flask_test_file_ast.body:
+                               if type(node) == ast.ClassDef:
+                                   class_name = node.name
+                           create_test_setup_method(flask_test_file_ast.body, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
+                           create_teardown_method(flask_test_file_ast, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
+                           compile_bytecode_and_write(flask_test_file_ast,flask_test_file_without_extension)
+
+
+               elif TEST_AWARE == 'normal':
+                   for node in asts.body:
+                       if type(node) == ast.ClassDef:
+                           class_name = node.name
+                   create_test_setup_method(asts.body, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
+                   create_teardown_method(asts, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
+
+
+
+
+               # write the instrumented scfg to a file
+               instrumented_scfg = CFG()
+               instrumented_scfg.process_block(top_level_block)
+               write_scfg_to_file(instrumented_scfg, "%s-%s-%s-instrumented.gv" %
+                                  (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
+                                   function.replace(".", "-")))
+
+               # check for existence of directories for intermediate data and create them if not found
+               if not (os.path.isdir("binding_spaces")):
+                   os.mkdir("binding_spaces")
+               if not (os.path.isdir("index_hash")):
+                   os.mkdir("index_hash")
+
+               # pickle binding space
+               pickled_binding_space = pickle.dumps(bindings)
+
+               # write to a file
+               binding_space_dump_file = "binding_spaces/module-%s-function-%s-property-%s.dump" % \
+                                         (module.replace(".", "-"), function.replace(".", "-"), formula_hash)
+               with open(binding_space_dump_file, "wb") as h:
+                   h.write(pickled_binding_space)
+
+               # write the index to hash mapping for properties
+               pickled_index_hash = pickle.dumps(index_to_hash)
+               index_to_hash_dump_file = "index_hash/module-%s-function-%s.dump" % \
+                                         (module.replace(".", "-"), function.replace(".", "-"))
+               with open(index_to_hash_dump_file, "wb") as h:
+                   h.write(pickled_index_hash)
+
+       compile_bytecode_and_write(asts, file_name_without_extension)
 
     logger.log("Instrumentation complete.  If VyPR is imported and activated, monitoring will now work.")
 

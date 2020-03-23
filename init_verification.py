@@ -49,10 +49,12 @@ class MonitoringLog(object):
 
     def start_logging(self):
         # open the log file in append mode
-        self.handle = open(self.log_file_name, "a")
+        if not self.logs_to_stdout:
+            self.handle = open(self.log_file_name, "a")
 
     def end_logging(self):
-        self.handle.close()
+        if not self.logs_to_stdout:
+            self.handle.close()
 
     def log(self, message):
         if self.handle:
@@ -60,8 +62,8 @@ class MonitoringLog(object):
             self.handle.write("%s\n" % message)
             # flush the contents of the file to disk - this way we get a log even with an unhandled exception
             self.handle.flush()
-            if self.logs_to_stdout:
-                print(message)
+        elif self.logs_to_stdout:
+            print(message)
 
 
 def to_timestamp(obj):
@@ -345,7 +347,7 @@ def consumption_thread_function(verification_obj):
                 # We only send verdict data to the server when
 
                 test_aware_status = top_pair[7]
-
+                vypr_output ("Test aware status %s" %test_aware_status)
                 if not test_aware_status in ['normal', 'flask']:
 
                     send_verdict_report(
@@ -518,7 +520,7 @@ def consumption_thread_function(verification_obj):
 
         if instrument_type == "test_status":
 
-
+                vypr_output("Processing test status instrument..")
                 if IS_END_OPT:
 
                     status = top_pair[2]
@@ -530,7 +532,6 @@ def consumption_thread_function(verification_obj):
                     else:
                         test_result = "Success"
                     vypr_output("Sending verdict report only in case of testing")
-                    print("Sending verdict report only in case of testing")
 
 
 

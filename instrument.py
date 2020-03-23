@@ -599,7 +599,7 @@ def create_test_setup_method(current_step, class_name, formula_hash,instrument_f
     :param class_name:              Name of the test class
     """
 
-
+    skip_transaction = False
     setUp_found = False
 
     if TEST_AWARE == "normal":
@@ -632,12 +632,18 @@ def create_test_setup_method(current_step, class_name, formula_hash,instrument_f
         if not (type(test_function) is ast.FunctionDef):
             continue
 
+        if test_function.name == 'setUpClass':
+            setup_transaction = ast.parse(transaction_time_statement).body[0]
+            test_function.body.insert(0,setup_transaction)
+            skip_transaction = True
+
         if test_function.name == 'setUp':
             # We found setUp method, now we need to add verification instructions
             setUp_found = True
 
-            check_condition_for_transaction_assign = ast.parse(check_condition_for_transaction).body[0]
-            test_function.body.insert(0,check_condition_for_transaction_assign)
+            if not skip_transaction:
+                check_condition_for_transaction_assign = ast.parse(check_condition_for_transaction).body[0]
+                test_function.body.insert(0,check_condition_for_transaction_assign)
 
             if TEST_AWARE == 'normal':
                 verification_import_inst = ast.parse(VERIFICATION_IMPORT).body[0]
@@ -650,6 +656,7 @@ def create_test_setup_method(current_step, class_name, formula_hash,instrument_f
 
     # If there is no setUp method, then we need to add setUp method in the class.
     if not setUp_found:
+
         if TEST_AWARE == 'normal':
             setUp_method = "def setUp(self):\n\t" + VERIFICATION_IMPORT + '\n\t' + VERIFICATION_OBJ + '\n\t' + check_condition_for_transaction
         else:

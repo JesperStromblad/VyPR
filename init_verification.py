@@ -32,6 +32,10 @@ PROJECT_ROOT = None
 IS_END_OPT = False
 
 
+
+
+
+
 class MonitoringLog(object):
     """
     Class to handle monitoring logging.
@@ -64,6 +68,9 @@ class MonitoringLog(object):
             self.handle.flush()
         elif self.logs_to_stdout:
             print(message)
+
+
+
 
 
 def to_timestamp(obj):
@@ -125,6 +132,7 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
     # first, send function call data - this will also insert program path data
     vypr_output("Function start time was %s" % time_of_call)
     vypr_output("Function end time was %s" % end_time_of_call)
+
 
 
     call_data = {
@@ -200,17 +208,17 @@ def consumption_thread_function(verification_obj):
 
     continue_monitoring = True
     while continue_monitoring:
-
-
       #  import pdb
       #  pdb.set_trace()
-
 
         # take top element from the queue
         try:
             top_pair = verification_obj.consumption_queue.get(timeout=1)
             ## In case of flask testing
         except:
+            # Changing flag to false here because in normal testing, end-monitoring does not change to False.
+            # If exception is raised we just terminate the monitoring
+
             continue
 
 
@@ -346,9 +354,12 @@ def consumption_thread_function(verification_obj):
 
                 # We only send verdict data to the server when
 
-                test_aware_status = top_pair[7]
-                vypr_output ("Test aware status %s" %test_aware_status)
-                if not test_aware_status in ['normal', 'flask']:
+                is_test = top_pair[7]
+                vypr_output ("Test aware status %s" %is_test)
+                vypr_output ("Type %s" %type(is_test))
+
+                # Not flask-testing nor normal-testing
+                if not is_test:
 
                     send_verdict_report(
                         function_name,
@@ -360,7 +371,6 @@ def consumption_thread_function(verification_obj):
                         top_pair[3],
                         top_pair[4]
                     )
-
 
 
                     # reset the verdict report
@@ -534,7 +544,6 @@ def consumption_thread_function(verification_obj):
                     vypr_output("Sending verdict report only in case of testing")
 
 
-
                     send_verdict_report(
                             function_name,
                             maps.latest_time_of_call,
@@ -558,6 +567,7 @@ def consumption_thread_function(verification_obj):
                     maps.program_path = []
 
                     IS_END_OPT = False
+                    # Finish the loop
 
         # set the task as done
         verification_obj.consumption_queue.task_done()
@@ -567,7 +577,7 @@ def consumption_thread_function(verification_obj):
         vypr_output("=" * 100)
 
     # if we reach this point, the monitoring thread is ending
-    vypr_logger.end_logging()
+    #vypr_logger.end_logging()
 
 
 class PropertyMapGroup(object):
@@ -821,6 +831,7 @@ class Verification(object):
 
    def end_monitoring(self):
         if not (self.initialisation_failure):
+            print ("End monitoring signal")
             vypr_output("Ending VyPR monitoring thread.")
             self.consumption_queue.put(("end-monitoring",))
 

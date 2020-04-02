@@ -208,8 +208,8 @@ def consumption_thread_function(verification_obj):
 
     continue_monitoring = True
     while continue_monitoring:
-      #  import pdb
-      #  pdb.set_trace()
+        #  import pdb
+        #  pdb.set_trace()
 
         # take top element from the queue
         try:
@@ -247,9 +247,9 @@ def consumption_thread_function(verification_obj):
 
 
         if top_pair[0] == "test_transaction":
-                transaction = top_pair[1]
-                vypr_output("Test suite begins at")
-                continue
+            transaction = top_pair[1]
+            vypr_output("Test suite begins at")
+            continue
 
 
 
@@ -265,7 +265,7 @@ def consumption_thread_function(verification_obj):
         function_name = top_pair[1]
 
 
-            # get the maps we need for this function
+        # get the maps we need for this function
 
 
         maps = verification_obj.function_to_maps[function_name][property_hash]
@@ -467,8 +467,6 @@ def consumption_thread_function(verification_obj):
                                             new_monitor.atom_to_state_dict[atom_index][sub_index] = \
                                                 monitor.atom_to_state_dict[atom_index][sub_index]
 
-                            vypr_output("    New monitor construction finished.")
-
                     elif len(monitor._monitor_instantiation_time) == bind_variable_index:
                         vypr_output("    Updating existing monitor timestamp sequence")
                         # extend the monitor's timestamp sequence
@@ -532,44 +530,44 @@ def consumption_thread_function(verification_obj):
 
         if instrument_type == "test_status":
 
-                vypr_output("Processing test status instrument with END_OPT status %s" %IS_END_OPT )
-                if IS_END_OPT:
+            vypr_output("Processing test status instrument with END_OPT status %s" %IS_END_OPT )
+            if IS_END_OPT:
 
-                    status = top_pair[2]
+                status = top_pair[2]
 
-                    if status.failures:
-                        test_result = "Fail"
-                    elif status.errors:
-                        test_result = "Error"
-                    else:
-                        test_result = "Success"
-                    vypr_output("Sending verdict report only in case of testing")
+                if status.failures:
+                    test_result = "Fail"
+                elif status.errors:
+                    test_result = "Error"
+                else:
+                    test_result = "Success"
+                vypr_output("Sending verdict report only in case of testing")
 
 
-                    send_verdict_report(
-                            function_name,
-                            maps.latest_time_of_call,
-                            datetime.datetime.now(),
-                            maps.program_path,
-                            verdict_report,
-                            binding_to_line_numbers,
-                            transaction,
-                        #    top_pair[3],
-                            top_pair[4],
-                            test_result
-                        )
+                send_verdict_report(
+                    function_name,
+                    maps.latest_time_of_call,
+                    datetime.datetime.now(),
+                    maps.program_path,
+                    verdict_report,
+                    binding_to_line_numbers,
+                    transaction,
+                    #    top_pair[3],
+                    top_pair[4],
+                    test_result
+                )
 
-                    # reset the verdict report
-                    maps.verdict_report.reset()
+                # reset the verdict report
+                maps.verdict_report.reset()
 
-                    # reset the function start time for the next time
-                    maps.latest_time_of_call = None
+                # reset the function start time for the next time
+                maps.latest_time_of_call = None
 
-                    # reset the program path
-                    maps.program_path = []
+                # reset the program path
+                maps.program_path = []
 
-                    IS_END_OPT = False
-                    # Finish the loop
+                IS_END_OPT = False
+                # Finish the loop
 
         # set the task as done
         verification_obj.consumption_queue.task_done()
@@ -659,7 +657,7 @@ def read_configuration(file):
 
 class Verification(object):
 
-   def __init__(self):
+    def __init__(self):
 
         """
         Sets up the consumption thread for events from instruments.
@@ -688,7 +686,7 @@ class Verification(object):
             self.initialisation_failure = True
             return
 
-   def initialise(self, flask_object):
+    def initialise(self, flask_object):
 
         vypr_output("Initialising VyPR alongside service.")
 
@@ -732,7 +730,6 @@ class Verification(object):
                 from app import vypr
                 # this function runs inside a request, so flask.g exists
                 # we store just the request time
-                #flask.g.request_time = datetime.datetime.now()
                 flask.g.request_time = vypr.get_time()
 
             flask_object.before_request(prepare_vypr)
@@ -809,7 +806,7 @@ class Verification(object):
 
         vypr_output("VyPR monitoring initialisation finished.")
 
-   def get_time(self, callee=""):
+    def get_time(self, callee=""):
         """
         Returns either the machine local time, or the NTP time (using the initial NTP time
         obtained when VyPR started up, so we don't query an NTP server everytime we want to measure time).
@@ -828,28 +825,29 @@ class Verification(object):
             vypr_output("Getting time based on local machine - %s" % callee)
             return datetime.datetime.utcnow()
 
-   def send_event(self, event_description):
+    def send_event(self, event_description):
+        print("trying to send an event..")
         if not (self.initialisation_failure):
             self.consumption_queue.put(event_description)
 
-   def end_monitoring(self):
+    def end_monitoring(self):
         if not (self.initialisation_failure):
             print ("End monitoring signal")
             vypr_output("Ending VyPR monitoring thread.")
             self.consumption_queue.put(("end-monitoring",))
 
-   def pause_monitoring(self):
+    def pause_monitoring(self):
         if not (self.initialisation_failure):
             vypr_output("Sending monitoring pause message.")
             self.consumption_queue.put(("inactive-monitoring-start",))
 
-   def resume_monitoring(self):
+    def resume_monitoring(self):
         if not (self.initialisation_failure):
             vypr_output("Sending monitoring resume message.")
             self.consumption_queue.put(("inactive-monitoring-stop",))
 
-   def get_test_result_in_flask(self,className, methodName, result):
-            print("Got the name and the status of the test {} {} {}".format(className, methodName, result))
+    def get_test_result_in_flask(self,className, methodName, result):
+        print("Got the name and the status of the test {} {} {}".format(className, methodName, result))
 
 
 

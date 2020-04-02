@@ -418,7 +418,7 @@ def instrument_point_state(state, name, point, binding_space_indices,
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = %s; " % (state_variable_alias, name)
         time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
-
+        time_attained_variable = "time_attained_%s" % state_variable_alias
     # note that observed_value is used three times:
     # 1) to capture the time attained by the state for checking of a property - this is duplicated
     #    because we have the start and end time of the state, which is the same because states are instantaneous.
@@ -435,7 +435,7 @@ def instrument_point_state(state, name, point, binding_space_indices,
         atom_sub_index=atom_sub_index,
         instrumentation_point_db_id=instrumentation_point_db_ids,
         atom_program_variable=name,
-        time_attained = ("time_attained_%s" % state_variable_alias),
+        time_attained = time_attained_variable,
         observed_value=("record_state_%s" % state_variable_alias)
     )
     state_recording_instrument += "%s((%s))" % (VERIFICATION_INSTRUCTION, instrument_tuple)
@@ -588,44 +588,40 @@ def instrument_point_transition(atom, point, binding_space_indices, atom_index,
     Adds a setUp() method and creates a verification object if it doesn't exists, 
     otherwise update the setUp() method with creating a verification object.
     
-    METHOD_CONSTRAINT: 
+    TODO: Too many checks for distinguishing between flask and non-flask testing.
     
 """
 
-def create_test_setup_method(current_step, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE):
+def create_test_setclass_method(current_step, class_name, flask):
     """
     :param enable_normal_testing:   Checks whether the testing is "normal" of "flask" based.
     :param current_step:            Contains the AST for the code
     :param class_name:              Name of the test class
     """
 
-    skip_transaction = False
     setUp_found = False
 
-    if TEST_AWARE == "normal":
+    # Setting instuctions for setUp methods.
+    if flask:
+        VERIFICATION_INSTRUCTION = "vypr.send_event"
+    else:
+        VERIFICATION_INSTRUCTION = "cls.vypr.send_event"
+        VERIFICATION_IMPORT = "from VyPR import Monitor"
+        VERIFICATION_OBJ = "cls.vypr = Monitor(); cls.vypr.initialise(None)"
 
-        #VERIFICATION_IMPORT = "from VyPR.init_verification import Verification"
-        #VERIFICATION_OBJ ="self.verification = Verification()"
-        VERIFICATION_IMPORT = "from VyPR import Monitor; self.vypr = Monitor()"
-        VERIFICATION_OBJ = "self.vypr.initialise(None)"
 
-
-        ## Finding the test class.
+    ## Finding the test class.
     current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
                       entry.name == class_name), current_step)[0]
 
+
     test_class_body = current_step.body
-
-    first_test_method = get_test_case_position(test_class_body, 0)
-
-    first_test_method = "'" + first_test_method + "'"
 
     transaction_time_statement =  "%s((\"test_transaction\", vypr_dt.now() ))" % \
                                       (VERIFICATION_INSTRUCTION)
 
-    check_condition_for_transaction = "if self._testMethodName ==" +first_test_method + ":" + transaction_time_statement
 
-    ## Traversing the body of the class in order to look for setUp method
+    ## Traversing the body of the class in order to look for setUpClass method
 
     for test_function in test_class_body:
 
@@ -633,34 +629,30 @@ def create_test_setup_method(current_step, class_name, formula_hash,instrument_f
             continue
 
         if test_function.name == 'setUpClass':
-            setup_transaction = ast.parse(transaction_time_statement).body[0]
-            test_function.body.insert(0,setup_transaction)
-            skip_transaction = True
 
-        if test_function.name == 'setUp':
-            # We found setUp method, now we need to add verification instructions
             setUp_found = True
 
-            if not skip_transaction:
-                check_condition_for_transaction_assign = ast.parse(check_condition_for_transaction).body[0]
-                test_function.body.insert(0,check_condition_for_transaction_assign)
+            setup_transaction = ast.parse(transaction_time_statement).body[0]
+            test_function.body.insert(0,setup_transaction)
 
-            if TEST_AWARE == 'normal':
+            if not flask:
                 verification_import_inst = ast.parse(VERIFICATION_IMPORT).body[0]
                 verification_import_obj_assign = ast.parse(VERIFICATION_OBJ).body[0]
                 test_function.body.insert(0,verification_import_obj_assign)
                 test_function.body.insert(0,verification_import_inst)
 
 
-
-
-    # If there is no setUp method, then we need to add setUp method in the class.
+    # If there is no setUpClass method, then we need to add setUp method in the class.
     if not setUp_found:
 
-        if TEST_AWARE == 'normal':
-            setUp_method = "def setUp(self):\n\t" + VERIFICATION_IMPORT + '\n\t' + VERIFICATION_OBJ + '\n\t' + check_condition_for_transaction
+        if flask:
+
+            setUp_method = "@classmethod\ndef setUpClass(cls):\n\t" +  transaction_time_statement
+
         else:
-            setUp_method = "def setUp(self):\n\t" +  check_condition_for_transaction
+
+            setUp_method = "@classmethod\ndef setUpClass(cls):\n\t" +  VERIFICATION_IMPORT + '\n\t'  + VERIFICATION_OBJ + '\n\t' + transaction_time_statement
+
 
         method_inst = ast.parse(setUp_method).body[0]
         test_class_body.insert(0,method_inst)
@@ -674,7 +666,7 @@ def create_test_setup_method(current_step, class_name, formula_hash,instrument_f
 """
 
 
-def create_teardown_method(ast_code, class_name, formula_hash, function, test_aware_type):
+def create_teardownclass_method(ast_code, class_name, flask):
 
     """
     :param ast_code:            Code for the AST
@@ -686,91 +678,44 @@ def create_teardown_method(ast_code, class_name, formula_hash, function, test_aw
 
 
     tearDown_found = False
-    function_index = 0
-
-
-    # In case of flask, getting the class name
 
 
 
-    if detect_testing_frameworks(ast_code):
-
-        ## Finding the test class.
-        current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
+    ## Finding the test class.
+    current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
                                               entry.name == class_name), ast_code.body)[0]
 
-        test_class_body = current_step.body
+    test_class_body = current_step.body
+
+    # Updating insttuction for teardownclass method
+    if flask:
+        VYPR_OBJ='vypr'
+    else:
+        VYPR_OBJ='cls.vypr'
+
+    verification_call_code =  VYPR_OBJ  + ".end_monitoring()"
 
 
 
-        verification_call_code =  "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, vypr_dt.now(),\"%s\"))" % \
-                                 (VERIFICATION_INSTRUCTION, formula_hash, function,formula_hash
-                                  )
+    for test_function in test_class_body:
 
+        if not (type(test_function) is ast.FunctionDef):
+            continue
 
-
-
-        # ## Find the name of last test method
-        # function_ast_list = filter( lambda entry: (type(entry) is ast.FunctionDef),test_class_body)
-        # function_name = map(lambda function: function.name, function_ast_list)
-        #
-        # function_name.remove('setUp')
-        # function_name.remove('tearDown')
-        #
-        # last_test_method_name = function_name[-1]
-
-        last_test_method_name = get_test_case_position(test_class_body, -1)
-        last_test_method_name = "'" + last_test_method_name + "'"
-
-        terminate_monitoring_call = "if self._testMethodName ==" +last_test_method_name + ":" +VYPR_OBJ  + ".end_monitoring()"
-        verification_call_code = verification_call_code + '\n\t' + terminate_monitoring_call
-
-
-
-
-        for test_function in test_class_body:
-
-
-            if isinstance(test_function, ast.FunctionDef):
-                function_index = function_index + 1                 # Placed teardown as the last function
-
-
-            if not (type(test_function) is ast.FunctionDef):
-                continue
-
-            if test_function.name is 'tearDown':
-                # We found tearDown method, now we need to add verification instructions
-                tearDown_found = True
-                verification_call_inst = ast.parse(verification_call_code).body[0]
-                test_function.body.insert(0,verification_call_inst)
+        if test_function.name is 'tearDownClass':
+            # We found tearDown method, now we need to add verification instructions
+            tearDown_found = True
+            verification_call_inst = ast.parse(verification_call_code).body[0]
+            test_function.body.insert(0,verification_call_inst)
 
 
         ## Terminate monitoring after all tests are analyzed
 
 
-        if not tearDown_found:
-            tear_method = "def tearDown(self):\n\t" + verification_call_code
-            method_inst = ast.parse(tear_method).body[0]
-            test_class_body.insert((function_index),method_inst)
-
-
-
-"""
-    Identifies the position of a test case in a test suite
-"""
-
-def get_test_case_position(test_class_body, position):
-    ## Find the name of last test method
-    function_ast_list = filter( lambda entry: (type(entry) is ast.FunctionDef),test_class_body)
-    function_name = map(lambda function: function.name, function_ast_list)
-
-    if 'setUp' in function_name:
-        function_name.remove('setUp')
-    if 'tearDown' in function_name:
-        function_name.remove('tearDown')
-
-    return function_name[position]
-
+    if not tearDown_found:
+        tear_method = "@classmethod\ndef tearDownClass(cls):\n\t" + verification_call_code
+        method_inst = ast.parse(tear_method).body[0]
+        test_class_body.insert(len(test_class_body),method_inst)
 
 
 """
@@ -786,19 +731,94 @@ def detect_testing_frameworks(ast_code):
     :param ast_code:    Abstract Syntax Tree for the code.
     """
 
-    if TEST_AWARE != None:
-
-        for node in ast_code.body:
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                if node.names[0].__dict__['name'] is 'unittest':
-
+    for node in ast_code.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            if node.names[0].__dict__['name'] is 'unittest':
                     return True
             else:
                     return False
-    else:
-        print("specify testing to either flask or normal in vypr.config file")
 
+
+
+"""
+
+This method is used for flask based testing.
+We have to insert a send_event of type 'end' in the method which calls the flask app method.
+TODO: Regex would be a better way to compare the end-point
+
+"""
+def get_method_name(end_point, file_path ):
+
+    """
+
+	:param end_point:
+	:param file_path:
+	:return: name of the test method based on the end-point
+
+	"""
+
+    if os.path.exists(file_path):
+        None
+    elif os.path.exists(file_path+'.inst'):
+        file_path = file_path+'.inst'
+
+    else:
+        print("File for getting method name does not exist..")
         exit()
+
+    file = open(file_path, 'r')
+    for line in file:
+        if 'def' in line:
+            def_method_name = line
+
+        if end_point in line :
+            without_def = def_method_name.split( )[1]
+            position_before_arg = without_def.find('(')
+            method_name  = without_def[0:position_before_arg]
+            return method_name
+
+
+def instrument_test_method(flask_test_file_ast, class_name, test_method_name_to_instrument, formula_hash,instrument_function_qualifier, flask_status_dict):
+
+    is_testing = flask_status_dict['normal_test']
+    flask = flask_status_dict['flask_status']
+
+
+    ## Finding the test class.
+    current_step = filter( lambda entry: (type(entry) is ast.ClassDef and
+                                          entry.name == class_name), flask_test_file_ast.body)[0]
+
+    test_class_body = current_step.body
+
+
+    # Updating instruction for flask test
+    if flask:
+
+        VERIFICATION_INSTRUCTION="vypr.send_event"
+
+    elif not flask and is_testing:
+
+        VERIFICATION_INSTRUCTION="self.vypr.send_event"
+
+
+
+    verification_call_code =  "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, vypr_dt.now(),\"%s\"))" % \
+                              (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash
+                               )
+
+
+    for test_function in test_class_body:
+
+
+        if not (type(test_function) is ast.FunctionDef):
+            continue
+
+
+        if test_function.name == test_method_name_to_instrument:
+            verification_call_inst = ast.parse(verification_call_code).body[0]
+            test_function.body.insert(len(test_function.body),verification_call_inst)
+
+
 def place_path_recording_instruments(scfg, instrument_function_qualifier, formula_hash):
     # insert path recording instruments - these don't depend on the formula being checked so
     # this is done independent of binding space computation
@@ -1002,19 +1022,33 @@ def place_function_begin_instruments(function_def, formula_hash, instrument_func
     function_def.body.insert(0, vypr_start_time_ast)
 
 
-def place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier, TEST_AWARE):
+def place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier, flask_status_dict):
     # insert the end instrument before every return statement
 
-    if TEST_AWARE == "normal":
-        time = "vypr_dt.now()"
-    else:
+    # Use time accordingly, if its flask or normal testing
+
+    flask = flask_status_dict['flask_status']
+    is_testing = flask_status_dict['normal_test']
+
+    if flask:
+
         time = "flask.g.request_time"
+
+    else:
+
+        time = "vypr_dt.now()"
+
+
+
+    # This condition is used send data to verdict server. We send either directly on 'end' instrument type or 'test_aware' type
+    test_aware = True if flask or is_testing else False
+
 
     for end_vertex in scfg.return_statements:
         end_instrument = \
             "%s((\"%s\", \"function\", \"%s\", \"end\", %s, \"%s\", __thread_id, " \
-            "%s.get_time(), \"%s\"))" \
-            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, time,formula_hash, VYPR_OBJ,TEST_AWARE)
+            "%s.get_time(),%r))" \
+            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, time,formula_hash, VYPR_OBJ, test_aware)
         end_ast = ast.parse(end_instrument).body[0]
 
         end_ast.lineno = end_vertex._previous_edge._instruction._parent_body[-1].lineno
@@ -1031,14 +1065,83 @@ def place_function_end_instruments(function_def, scfg, formula_hash, instrument_
     if not (type(function_def.body[-1]) is ast.Return):
         end_instrument = \
             "%s((\"%s\", \"function\", \"%s\", \"end\", %s, \"%s\", __thread_id, " \
-            "%s.get_time(), \"%s\"))" \
-            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, time,formula_hash, VYPR_OBJ,TEST_AWARE)
+            "%s.get_time(), %r))" \
+            % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, time,formula_hash, VYPR_OBJ,test_aware)
         end_ast = ast.parse(end_instrument).body[0]
+
+
+        # In case of test, there is no return instruction therefore we add the test_status instruction after the end instruction
 
         logger.log("Placing end instrument at the end of the function body.")
 
         function_def.body.insert(len(function_def.body), end_ast)
 
+        if flask or is_testing:
+            test_status_instrument = \
+                "%s((\"%s\",\"test_status\", \"%s\",self._resultForDoCleanups, vypr_dt.now(),\"%s\"))" % \
+                (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash
+                 )
+            test_status_ast = ast.parse(test_status_instrument).body[0]
+            logger.log("Placing test_status instrument at the end of the function body.")
+            function_def.body.insert(len(function_def.body), test_status_ast)
+
+
+
+def detect_flask_test_case(function , ast):
+
+    test = detect_testing_frameworks(ast)
+
+    # This flag is use to help decide the instrumentation about which instructions to insert in setupclass and teardownclass methods in test class
+    is_flask=False
+    for directory in os.walk("."):
+        for file in directory[2]:
+            f = os.path.join(directory[0], file)
+            if str(f).endswith('.py'):
+                     # rename to .py
+                with open (f) as file:
+                    contents = file.read()
+                    search_end_point = 'self.client.post(\'/' + function
+                    if search_end_point in contents:
+                        is_flask = True
+                        # Returns the the flask status and test file for instrumenting
+                        return {'flask_status' : is_flask, 'test_file': f, 'normal_test': test}
+
+    # This would be the case for normal testing
+    return  {'flask_status' : is_flask, 'test_file': None, 'normal_test': test}
+
+
+
+def add_vypr_datetime_import(asts):
+
+    vypr_datetime_import = "from datetime import datetime as vypr_dt"
+    datetime_import_ast = ast.parse(vypr_datetime_import).body[0]
+    datetime_import_ast.lineno = asts.body[0].lineno
+    datetime_import_ast.col_offset = asts.body[0].col_offset
+    asts.body.insert(0, datetime_import_ast)
+
+
+def add_setup_instruction(asts, flask_status_dict):
+
+    # Get test  and flask status
+
+    is_testing = flask_status_dict['normal_test']
+
+    flask_status = flask_status_dict['flask_status']
+
+    if flask_status or is_testing:
+
+        for node in asts.body:
+            if type(node) == ast.ClassDef:
+                class_name = node.name
+
+        create_test_setclass_method(asts.body, class_name, flask_status)
+
+        create_teardownclass_method(asts, class_name, flask_status)
+
+        return class_name
+
+    # In case of non-testing
+    return None
 
 if __name__ == "__main__":
 
@@ -1077,29 +1180,6 @@ if __name__ == "__main__":
         if inst_configuration.get("use_flask") else "no"
     VERIFICATION_INSTRUCTION = inst_configuration.get("verification_instruction") \
         if inst_configuration.get("verification_instruction") else "verification.send_event"
-    TEST_AWARE = inst_configuration.get("testing")
-    FLASK_TEST_FOLDER=inst_configuration.get("flask_test_folder") \
-       if inst_configuration.get("flask_test_folder") else ""
-
-    ##Test related checks in configuration file.
-    if TEST_AWARE not in ['normal', 'flask', 'None']:
-       print ("Specify normal or flask for testing. None for normal program analysis")
-       exit()
-
-
-    if TEST_AWARE == 'flask':
-        # In flask-based testing, it is important to specify the file (absolute path) where test case is present.
-        if inst_configuration.get("flask_test_folder") == None:
-            print ("Specify the path for flask test file.")
-            exit()
-        else:
-            # If incorrect format of the path is specified. The path should only start with a directory name and end with .py extension.
-            import re
-            m = re.search('^([A-z0-9-_+]+\/)*([A-z0-9]+\.(py))',inst_configuration.get("flask_test_folder"))
-            if m == None:
-                print ("Specify the correct path for flask test file.")
-                exit()
-
 
 
     VYPR_MODULE = inst_configuration.get("vypr_module") \
@@ -1107,11 +1187,6 @@ if __name__ == "__main__":
     VERIFICATION_INSTRUCTION = "vypr.send_event"
     # VERIFICATION_INSTRUCTION = "print"
     VYPR_OBJ = "vypr"
-
-    if TEST_AWARE == 'normal':
-       VYPR_OBJ = "self.vypr"
-       VERIFICATION_INSTRUCTION = VYPR_OBJ+".send_event"
-
 
     machine_id = ("%s-" % inst_configuration.get("machine_id")) if inst_configuration.get("machine_id") else ""
 
@@ -1121,8 +1196,8 @@ if __name__ == "__main__":
         exit()
 
 
-    SETUP_ONCE =False
-    TEARDOWN_ONCE = False
+    flask_test_file_for_inst = None
+    SETUP_ONCE = False
 
     # initialise instrumentation logger
     logger = InstrumentationLog(LOGS_TO_STDOUT)
@@ -1160,6 +1235,16 @@ if __name__ == "__main__":
 
     for module in verified_modules:
 
+       # Initialize to False for a new file.
+       SETUP_ONCE = False
+
+       # Reset the instructions
+       VERIFICATION_INSTRUCTION = "vypr.send_event"
+
+       # VERIFICATION_INSTRUCTION = "print"
+       VYPR_OBJ = "vypr"
+
+
        logger.log("Processing module '%s'." % module)
 
        verified_functions = verification_conf[module].keys()
@@ -1167,29 +1252,58 @@ if __name__ == "__main__":
        file_name = module.replace(".", "/") + ".py"
        file_name_without_extension = module.replace(".", "/")
 
+       print (file_name)
+
        # extract asts from the code in the file
        code = "".join(open(file_name, "r").readlines())
        asts = ast.parse(code)
 
-       # add import for init_vypr module
-       if not TEST_AWARE in ['normal']:
-           import_code = "from %s import vypr" % VYPR_MODULE
-           import_ast = ast.parse(import_code).body[0]
-           import_ast.lineno = asts.body[0].lineno
-           import_ast.col_offset = asts.body[0].col_offset
-           asts.body.insert(0, import_ast)
+       # If testing is enabled, we detect where the corresponding test case resides so that we can instrument the test file accordingly.
+       flask_status_dict = detect_flask_test_case(verified_functions[0], asts)
 
-           import_code = "import flask"
-           import_asts = ast.parse(import_code)
-           flask_import = import_asts.body[0]
-           asts.body.insert(0, flask_import)
+
+       # Detecting whether the file is a test case. Therefore, we change the verification instruction accordingly
+       if flask_status_dict['normal_test']:
+           VYPR_OBJ = "self.vypr"
+           VERIFICATION_INSTRUCTION = VYPR_OBJ+".send_event"
+
+
+       # If we find a corresponding test file in case of flask testing, we will instrument it.
+       if flask_status_dict['test_file'] != None:
+
+           flask_test_file =  flask_status_dict['test_file']
+
+           flask_test_file_for_inst = flask_test_file
+
+           flask_test_file_without_extension = flask_test_file.replace('.py','')
+
+           code = "".join(open(flask_test_file, "r").readlines())
+
+           flask_test_file_ast = ast.parse(code)
+
+
+           # We first add imports to the corresponding test file
+           add_vypr_datetime_import(flask_test_file_ast)
+
+       # add import for init_vypr module
+       # For normal testing we don't need to add this to the test class file
+
+       if not flask_status_dict['normal_test']:
+            import_code = "from %s import vypr" % VYPR_MODULE
+            import_ast = ast.parse(import_code).body[0]
+            import_ast.lineno = asts.body[0].lineno
+            import_ast.col_offset = asts.body[0].col_offset
+            asts.body.insert(0, import_ast)
+
+       import_code = "import flask"
+       import_asts = ast.parse(import_code)
+       flask_import = import_asts.body[0]
+       asts.body.insert(0, flask_import)
+
 
        # add vypr datetime import
-       vypr_datetime_import = "from datetime import datetime as vypr_dt"
-       datetime_import_ast = ast.parse(vypr_datetime_import).body[0]
-       datetime_import_ast.lineno = asts.body[0].lineno
-       datetime_import_ast.col_offset = asts.body[0].col_offset
-       asts.body.insert(0, datetime_import_ast)
+       add_vypr_datetime_import(asts)
+
 
        # if we're using flask, we assume a certain architecture
 
@@ -1197,6 +1311,7 @@ if __name__ == "__main__":
        for function in verified_functions:
 
            logger.log("Processing function '%s'." % function)
+
 
            # we replace . with : in function definitions to make sure we can distinguish between module
            # and class navigation later on
@@ -1690,43 +1805,32 @@ if __name__ == "__main__":
                # function has started and insert one at the end to signal a return
                place_function_begin_instruments(function_def, formula_hash, instrument_function_qualifier)
                # also insert instruments at the end(s) of the function
-               place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier,TEST_AWARE)
+               place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier, flask_status_dict)
 
+               # Adding setupClass and teardownClass for testing
 
+               if not SETUP_ONCE:
+                    if flask_status_dict['flask_status']:
+                        # In case of Flask we only instrument test case.
+                        ast_to_modify = flask_test_file_ast
+                        class_name = add_setup_instruction(ast_to_modify, flask_status_dict)
+                    else:
+                        # In case of normal testing, we instrument the normal program
+                        ast_to_modify = asts
+                        add_setup_instruction(ast_to_modify, flask_status_dict)
 
+                    # We only add setup instructions once.
+                    SETUP_ONCE = True
 
-               if TEST_AWARE == 'flask':
-                       flask_test_file = inst_configuration.get("flask_test_folder")
-                       flask_test_file_without_extension = inst_configuration.get("flask_test_folder").replace('.py','')
+               # We add instruction in flask test file.
+               if flask_test_file_for_inst:
+                    test_method_name_to_instrument = get_method_name(function, flask_test_file_for_inst)
 
-                       code = "".join(open(flask_test_file, "r").readlines())
-                       flask_test_file_ast = ast.parse(code)
-
-
-                       # add vypr datetime import
-                       vypr_datetime_import = "from datetime import datetime as vypr_dt"
-                       datetime_import_ast = ast.parse(vypr_datetime_import).body[0]
-                       datetime_import_ast.lineno = asts.body[0].lineno
-                       datetime_import_ast.col_offset = asts.body[0].col_offset
-                       flask_test_file_ast.body.insert(0, datetime_import_ast)
-
-                       if detect_testing_frameworks(flask_test_file_ast):
-
-                           for node in flask_test_file_ast.body:
-                               if type(node) == ast.ClassDef:
-                                   class_name = node.name
-                           create_test_setup_method(flask_test_file_ast.body, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
-                           create_teardown_method(flask_test_file_ast, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
-                           compile_bytecode_and_write(flask_test_file_ast,flask_test_file_without_extension)
-
-
-               elif TEST_AWARE == 'normal':
-                   for node in asts.body:
-                       if type(node) == ast.ClassDef:
-                           class_name = node.name
-                   create_test_setup_method(asts.body, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
-                   create_teardown_method(asts, class_name, formula_hash,instrument_function_qualifier, TEST_AWARE)
-
+                    instrument_test_method(flask_test_file_ast,
+                                          class_name,
+                                          test_method_name_to_instrument,
+                                          formula_hash,instrument_function_qualifier,
+                                          flask_status_dict)
 
 
 
@@ -1760,6 +1864,10 @@ if __name__ == "__main__":
                    h.write(pickled_index_hash)
 
        compile_bytecode_and_write(asts, file_name_without_extension)
+
+       # Generate a bytecode file only in case of flask-based testing
+       if flask_status_dict['flask_status']:
+            compile_bytecode_and_write(flask_test_file_ast,flask_test_file_without_extension)
 
     logger.log("Instrumentation complete.  If VyPR is imported and activated, monitoring will now work.")
 

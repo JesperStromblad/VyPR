@@ -32,6 +32,10 @@ PROJECT_ROOT = None
 IS_END_OPT = False
 
 
+
+
+
+
 class MonitoringLog(object):
     """
     Class to handle monitoring logging.
@@ -66,6 +70,9 @@ class MonitoringLog(object):
             print(message)
 
 
+
+
+
 def to_timestamp(obj):
     if type(obj) is datetime.datetime:
         return obj.isoformat()
@@ -89,13 +96,13 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
 
                         binding_to_line_numbers, transaction_time, property_hash,  test_result = None, test_name = None):
 
-
+    vypr_output("Sending verdicts to server...")
     """
     Send verdict data for a given function call (function name + time of call).
     """
     global VERDICT_SERVER_URL
     verdicts = verdict_report.get_final_verdict_report()
-    vypr_output("Sending verdicts to server...")
+    vypr_output("Retrived the verdict %s" %verdicts)
 
 
 
@@ -125,6 +132,7 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
     # first, send function call data - this will also insert program path data
     vypr_output("Function start time was %s" % time_of_call)
     vypr_output("Function end time was %s" % end_time_of_call)
+
 
 
     call_data = {
@@ -200,17 +208,17 @@ def consumption_thread_function(verification_obj):
 
     continue_monitoring = True
     while continue_monitoring:
-
-
       #  import pdb
       #  pdb.set_trace()
-
 
         # take top element from the queue
         try:
             top_pair = verification_obj.consumption_queue.get(timeout=1)
             ## In case of flask testing
         except:
+            # Changing flag to false here because in normal testing, end-monitoring does not change to False.
+            # If exception is raised we just terminate the monitoring
+
             continue
 
 
@@ -346,9 +354,12 @@ def consumption_thread_function(verification_obj):
 
                 # We only send verdict data to the server when
 
-                test_aware_status = top_pair[7]
-                vypr_output ("Test aware status %s" %test_aware_status)
-                if not test_aware_status in ['normal', 'flask']:
+                is_test = top_pair[7]
+                vypr_output ("Test aware status %s" %is_test)
+                vypr_output ("Type %s" %type(is_test))
+
+                # Not flask-testing nor normal-testing
+                if not is_test:
 
                     send_verdict_report(
                         function_name,
@@ -360,7 +371,6 @@ def consumption_thread_function(verification_obj):
                         top_pair[3],
                         top_pair[4]
                     )
-
 
 
                     # reset the verdict report
@@ -457,6 +467,8 @@ def consumption_thread_function(verification_obj):
                                             new_monitor.atom_to_state_dict[atom_index][sub_index] = \
                                                 monitor.atom_to_state_dict[atom_index][sub_index]
 
+                            vypr_output("    New monitor construction finished.")
+
                     elif len(monitor._monitor_instantiation_time) == bind_variable_index:
                         vypr_output("    Updating existing monitor timestamp sequence")
                         # extend the monitor's timestamp sequence
@@ -520,7 +532,7 @@ def consumption_thread_function(verification_obj):
 
         if instrument_type == "test_status":
 
-                vypr_output("Processing test status instrument..")
+                vypr_output("Processing test status instrument with END_OPT status %s" %IS_END_OPT )
                 if IS_END_OPT:
 
                     status = top_pair[2]
@@ -532,7 +544,6 @@ def consumption_thread_function(verification_obj):
                     else:
                         test_result = "Success"
                     vypr_output("Sending verdict report only in case of testing")
-
 
 
                     send_verdict_report(
@@ -558,6 +569,7 @@ def consumption_thread_function(verification_obj):
                     maps.program_path = []
 
                     IS_END_OPT = False
+                    # Finish the loop
 
         # set the task as done
         verification_obj.consumption_queue.task_done()
@@ -567,7 +579,7 @@ def consumption_thread_function(verification_obj):
         vypr_output("=" * 100)
 
     # if we reach this point, the monitoring thread is ending
-    vypr_logger.end_logging()
+    #vypr_logger.end_logging()
 
 
 class PropertyMapGroup(object):
@@ -717,9 +729,11 @@ class Verification(object):
         if flask_object:
             def prepare_vypr():
                 import datetime
+                from app import vypr
                 # this function runs inside a request, so flask.g exists
                 # we store just the request time
-                flask.g.request_time = datetime.datetime.now()
+                #flask.g.request_time = datetime.datetime.now()
+                flask.g.request_time = vypr.get_time()
 
             flask_object.before_request(prepare_vypr)
 
@@ -795,7 +809,7 @@ class Verification(object):
 
         vypr_output("VyPR monitoring initialisation finished.")
 
-   def get_time(self):
+   def get_time(self, callee=""):
         """
         Returns either the machine local time, or the NTP time (using the initial NTP time
         obtained when VyPR started up, so we don't query an NTP server everytime we want to measure time).
@@ -811,16 +825,16 @@ class Verification(object):
             current_ntp_time = self.ntp_start_time + difference
             return current_ntp_time
         else:
-            vypr_output("Getting time based on local machine.")
+            vypr_output("Getting time based on local machine - %s" % callee)
             return datetime.datetime.utcnow()
 
    def send_event(self, event_description):
-        print("trying to send an event..")
         if not (self.initialisation_failure):
             self.consumption_queue.put(event_description)
 
    def end_monitoring(self):
         if not (self.initialisation_failure):
+            print ("End monitoring signal")
             vypr_output("Ending VyPR monitoring thread.")
             self.consumption_queue.put(("end-monitoring",))
 

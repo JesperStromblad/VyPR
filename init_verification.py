@@ -283,6 +283,7 @@ def consumption_thread_function(verification_obj):
             # for now, we can just process "end" - we reset the contents of the maps
             # that are updated at runtime
             scope_event = top_pair[2]
+            vypr_output("SCOPE_EVENT %s" %scope_event)
             if scope_event == "end":
 
 
@@ -733,7 +734,7 @@ class Verification(object):
                 flask.g.request_time = vypr.get_time()
 
             flask_object.before_request(prepare_vypr)
-
+            vypr_output("Completed the time")
             # add VyPR end points - we may use this for statistics collection on the server
             # add the safe exist end point
             @flask_object.route("/vypr/stop-monitoring/")

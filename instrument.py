@@ -1087,7 +1087,11 @@ def place_function_end_instruments(function_def, scfg, formula_hash, instrument_
 
 
 
-def detect_flask_test_case(function , ast):
+def detect_flask_test_case(function , ast, test_flag):
+
+    # In case of no testing at all
+    if not test_flag:
+        return  {'flask_status' : False, 'test_file': None, 'normal_test': False}
 
     test = detect_testing_frameworks(ast)
 
@@ -1180,6 +1184,11 @@ if __name__ == "__main__":
         if inst_configuration.get("use_flask") else "no"
     VERIFICATION_INSTRUCTION = inst_configuration.get("verification_instruction") \
         if inst_configuration.get("verification_instruction") else "verification.send_event"
+    TEST_FRAMEWORK = inst_configuration.get("testing") \
+        if inst_configuration.get("testing") else False
+
+    if TEST_FRAMEWORK in ['yes']:
+        TEST_FRAMEWORK = True
 
 
     VYPR_MODULE = inst_configuration.get("vypr_module") \
@@ -1259,7 +1268,7 @@ if __name__ == "__main__":
         asts = ast.parse(code)
 
         # If testing is enabled, we detect where the corresponding test case resides so that we can instrument the test file accordingly.
-        flask_status_dict = detect_flask_test_case(verified_functions[0], asts)
+        flask_status_dict = detect_flask_test_case(verified_functions[0], asts, TEST_FRAMEWORK)
 
 
         # Detecting whether the file is a test case. Therefore, we change the verification instruction accordingly

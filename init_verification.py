@@ -24,12 +24,13 @@ VERDICT_SERVER_URL = None
 VYPR_OUTPUT_VERBOSE = True
 PROJECT_ROOT = None
 
+
 ## USED IN CASE OF FLASK TESTING
 #MAP_COPY_VERDICT = {}
 
 ## The purpose of this flag is to exclude verification send_event call
 ## with 'test_status' option, if "end" option has not occured.
-IS_END_OPT = False
+TEST_DIR = ''
 
 
 
@@ -94,7 +95,7 @@ def vypr_output(string):
 
 def send_verdict_report(function_name, time_of_call, end_time_of_call, program_path, verdict_report,
 
-                        binding_to_line_numbers, transaction_time, property_hash,  test_result = None, test_name = None):
+                        binding_to_line_numbers, transaction_time, property_hash):
 
     vypr_output("Sending verdicts to server...")
     """
@@ -103,29 +104,6 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
     global VERDICT_SERVER_URL
     verdicts = verdict_report.get_final_verdict_report()
     vypr_output("Retrived the verdict %s" %verdicts)
-
-
-
-
-    # If test data exists.
-    if test_result !=None:
-        vypr_output("SENDING TEST DATA")
-        vypr_output("TEST_NAME {}".format(test_name))
-        vypr_output("TEST_RESULT {}".format(test_result))
-
-
-        test_data = {
-            "test_name"   : test_name,
-            "test_result" : test_result
-        }
-
-
-        test_id = json.loads(requests.post(
-            os.path.join(VERDICT_SERVER_URL, "insert_test_data/"),
-            data=json.dumps(test_data)
-        ).text)
-    else:
-        test_id = None
 
 
 
@@ -141,8 +119,7 @@ def send_verdict_report(function_name, time_of_call, end_time_of_call, program_p
         "end_time_of_call": end_time_of_call.isoformat(),
         "function_name": function_name,
         "property_hash": property_hash,
-        "program_path": program_path,
-        "test_data_id": test_id
+        "program_path": program_path
     }
 
 
@@ -203,9 +180,14 @@ def consumption_thread_function(verification_obj):
     # this needs to be changed for a clean exit
     INACTIVE_MONITORING = False
 
-    global IS_END_OPT
 
+    #list_test_cases = total_test_cases()
+    #list_test_cases = ['test_index', 'test__python_version', 'test_upload_session', 'test_check_hashes', 'test_store_payload',
+    #                  'test_upload_metadata', 'test_close_upload_session']
 
+    list_test_cases = ['test_orm_objects_to_dicts', 'test_dicts_to_orm_objects' ]
+
+    transaction = -1
     continue_monitoring = True
     while continue_monitoring:
         #  import pdb
@@ -218,7 +200,7 @@ def consumption_thread_function(verification_obj):
         except:
             # Changing flag to false here because in normal testing, end-monitoring does not change to False.
             # If exception is raised we just terminate the monitoring
-
+            print("Getting stuck here! because queue is empty")
             continue
 
 
@@ -248,7 +230,6 @@ def consumption_thread_function(verification_obj):
 
         if top_pair[0] == "test_transaction":
             transaction = top_pair[1]
-            vypr_output("Test suite begins at")
             continue
 
 
@@ -287,7 +268,6 @@ def consumption_thread_function(verification_obj):
             if scope_event == "end":
 
 
-                IS_END_OPT = True
 
                 vypr_output("*" * 50)
 
@@ -342,46 +322,41 @@ def consumption_thread_function(verification_obj):
                         elif type(bind_var) is CFGEdge:
                             binding_to_line_numbers[bind_space_index].append(bind_var._instruction.lineno)
 
-                print(top_pair)
 
                 # send the verdict
                 # we send the function name, the time of the function call, the verdict report object,
                 # the map of bindings to their line numbers and the date/time of the request the identify it (single threaded...)
 
 
+                if transaction != -1:
+                    transaction_time = transaction
+                else:
+                    transaction_time = top_pair[3]
 
-
-
-
-                # We only send verdict data to the server when
-
-                is_test = top_pair[7]
-                vypr_output ("Test aware status %s" %is_test)
-                vypr_output ("Type %s" %type(is_test))
-
-                # Not flask-testing nor normal-testing
-                if not is_test:
-
-                    send_verdict_report(
+                send_verdict_report(
                         function_name,
                         maps.latest_time_of_call,
-                        top_pair[-2],
+                        top_pair[-1],
                         maps.program_path,
                         verdict_report,
                         binding_to_line_numbers,
-                        top_pair[3],
+                        transaction_time,
+                        #top_pair[3],
                         top_pair[4]
-                    )
+                )
 
 
-                    # reset the verdict report
-                    maps.verdict_report.reset()
+                # reset transaction value
+                transaction = -1
 
-                    # reset the function start time for the next time
-                    maps.latest_time_of_call = None
+                # reset the verdict report
+                maps.verdict_report.reset()
 
-                    # reset the program path
-                    maps.program_path = []
+                # reset the function start time for the next time
+                maps.latest_time_of_call = None
+
+                # reset the program path
+                maps.program_path = []
 
             elif scope_event == "start":
                 vypr_output("Function '%s' has started." % function_name)
@@ -531,51 +506,60 @@ def consumption_thread_function(verification_obj):
 
         if instrument_type == "test_status":
 
-            vypr_output("Processing test status instrument with END_OPT status %s" %IS_END_OPT )
-            if IS_END_OPT:
 
-                status = top_pair[2]
 
-                if status.failures:
+            # verified_function = top_pair[1]
+            status = top_pair[2]
+            start_test_time = top_pair[3]
+            end_test_time = top_pair[4]
+            test_name = top_pair[6]
+
+            print (list_test_cases)
+            # We are trying to empty all the test cases in order to terminate the monitoring
+            if test_name in list_test_cases:
+                list_test_cases.remove(test_name)
+
+            if len(list_test_cases) == 0:
+                 continue_monitoring = False
+
+            if status.failures:
                     test_result = "Fail"
-                elif status.errors:
+            elif status.errors:
                     test_result = "Error"
-                else:
+            else:
                     test_result = "Success"
-                vypr_output("Sending verdict report only in case of testing")
 
 
-                send_verdict_report(
-                    function_name,
-                    maps.latest_time_of_call,
-                    datetime.datetime.now(),
-                    maps.program_path,
-                    verdict_report,
-                    binding_to_line_numbers,
-                    transaction,
-                    #    top_pair[3],
-                    top_pair[4],
-                    test_result
-                )
+            # If test data exists.
 
-                # reset the verdict report
-                maps.verdict_report.reset()
 
-                # reset the function start time for the next time
-                maps.latest_time_of_call = None
+            test_data = {
+             "test_name"   : test_name,
+             "test_result" : test_result,
+             "start_time"  : start_test_time.isoformat(),
+             "end_time"    : end_test_time.isoformat()
 
-                # reset the program path
-                maps.program_path = []
+            }
 
-                IS_END_OPT = False
-                # Finish the loop
+
+            json.loads(requests.post(
+                os.path.join(VERDICT_SERVER_URL, "insert_test_data/"),
+                data=json.dumps(test_data)
+            ).text)
+
+            # To terminate
+            #if top_pair[5] >= TOTAL_TEST_RUN:
+            #     continue_monitoring = False
+
+            #
+
 
         # set the task as done
-        verification_obj.consumption_queue.task_done()
+    verification_obj.consumption_queue.task_done()
 
-        vypr_output("Consumption finished.")
+    vypr_output("Consumption finished.")
 
-        vypr_output("=" * 100)
+    vypr_output("=" * 100)
 
     # if we reach this point, the monitoring thread is ending
     #vypr_logger.end_logging()
@@ -633,6 +617,7 @@ class PropertyMapGroup(object):
         self.program_path = []
 
 
+
 def read_configuration(file):
     """
     Read in 'file', parse into an object and return.
@@ -655,6 +640,36 @@ def read_configuration(file):
     return json.loads(content)
 
 
+def total_test_cases():
+
+    from os.path import dirname, abspath
+    import re
+
+    global TEST_DIR
+
+    ROOT_DIR = dirname(dirname(abspath(__file__)))
+
+    test_cases = []
+
+    path = ROOT_DIR+'/' + TEST_DIR
+
+    total_tests = []
+
+    #for r, d, f in os.walk(os.environ('PATH')):
+    for r, d, f in os.walk(path):
+
+        for file in f:
+
+            if file.startswith("test_") and (file.endswith('.py') or file.endswith('.py.inst')):
+
+                readfile = open(os.path.join(r, file), "r")
+
+                for line in readfile:
+                    if re.search('(def)\s(test.*)', line):
+                        test_cases.append( line[5:line.index('(')])
+    return test_cases
+
+
 
 class Verification(object):
 
@@ -672,11 +687,12 @@ class Verification(object):
 
         # read configuration file
         inst_configuration = read_configuration("vypr.config")
-        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT
+        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT, TOTAL_TEST_RUN
         VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") if inst_configuration.get(
             "verdict_server_url") else "http://localhost:9001/"
         VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True
         PROJECT_ROOT = inst_configuration.get("project_root") if inst_configuration.get("project_root") else ""
+
 
         # try to connect to the verdict server before we set anything up
         try:
@@ -698,6 +714,19 @@ class Verification(object):
             "verdict_server_url") else "http://localhost:9001/"
         VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True
         PROJECT_ROOT = inst_configuration.get("project_root") if inst_configuration.get("project_root") else ""
+
+        TEST_FRAMEWORK = inst_configuration.get("test") \
+            if inst_configuration.get("test") else ""
+
+         # If testing is set then we should specify the test module
+        if  TEST_FRAMEWORK in ['yes']:
+            TEST_DIR = inst_configuration.get("test_module") \
+                if inst_configuration.get("test_module") else ''
+
+            if TEST_DIR == '':
+                print ('Specify test module. Ending instrumentation - nothing has been done')
+                exit()
+
 
         self.machine_id = ("%s-" % inst_configuration.get("machine_id")) if inst_configuration.get("machine_id") else ""
 

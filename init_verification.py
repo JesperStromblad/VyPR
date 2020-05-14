@@ -185,7 +185,9 @@ def consumption_thread_function(verification_obj):
     #list_test_cases = ['test_index', 'test__python_version', 'test_upload_session', 'test_check_hashes', 'test_store_payload',
     #                  'test_upload_metadata', 'test_close_upload_session']
 
-    list_test_cases = ['test_orm_objects_to_dicts', 'test_dicts_to_orm_objects' ]
+    #list_test_cases = ['test_orm_objects_to_dicts', 'test_dicts_to_orm_objects' ]
+    list_test_cases = ['test_insert_iovs', 'test_construct_tags']
+
 
     transaction = -1
     continue_monitoring = True

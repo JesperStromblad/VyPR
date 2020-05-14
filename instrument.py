@@ -983,7 +983,7 @@ def create_test_setclass_method(current_step, class_name):
 
     test_class_body = current_step.body
 
-    transaction_time_statement =  "%s((\"test_transaction\", vypr_dt.now() ))" % \
+    transaction_time_statement =  "%s((\"test_transaction\", vypr.get_time() ))" % \
                                   (VERIFICATION_INSTRUCTION)
 
 

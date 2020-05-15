@@ -23,7 +23,7 @@ from VyPR.verdict_reports import VerdictReport
 VERDICT_SERVER_URL = None
 VYPR_OUTPUT_VERBOSE = True
 PROJECT_ROOT = None
-
+TEST_FRAMEWORK = 'no'
 
 ## USED IN CASE OF FLASK TESTING
 #MAP_COPY_VERDICT = {}
@@ -329,11 +329,11 @@ def consumption_thread_function(verification_obj):
                 # we send the function name, the time of the function call, the verdict report object,
                 # the map of bindings to their line numbers and the date/time of the request the identify it (single threaded...)
 
-
-                if transaction != -1:
-                    transaction_time = transaction
+                if 'yes' in TEST_FRAMEWORK :
+                        transaction_time = transaction
                 else:
-                    transaction_time = top_pair[3]
+                        transaction_time = top_pair[3]
+
 
                 send_verdict_report(
                         function_name,
@@ -347,9 +347,6 @@ def consumption_thread_function(verification_obj):
                         top_pair[4]
                 )
 
-
-                # reset transaction value
-                transaction = -1
 
                 # reset the verdict report
                 maps.verdict_report.reset()
@@ -516,7 +513,6 @@ def consumption_thread_function(verification_obj):
             end_test_time = top_pair[4]
             test_name = top_pair[6]
 
-            print (list_test_cases)
             # We are trying to empty all the test cases in order to terminate the monitoring
             if test_name in list_test_cases:
                 list_test_cases.remove(test_name)
@@ -711,7 +707,7 @@ class Verification(object):
 
         # read configuration file
         inst_configuration = read_configuration("vypr.config")
-        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT
+        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT, TEST_FRAMEWORK
         VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") if inst_configuration.get(
             "verdict_server_url") else "http://localhost:9001/"
         VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True
@@ -858,7 +854,7 @@ class Verification(object):
             return datetime.datetime.utcnow()
 
     def send_event(self, event_description):
-        print("trying to send an event..")
+        print( "Looking at the events --->>> id : %s , event: %s"%(id(self),event_description))
         if not (self.initialisation_failure):
             self.consumption_queue.put(event_description)
 

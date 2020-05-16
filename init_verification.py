@@ -181,7 +181,8 @@ def consumption_thread_function(verification_obj):
     INACTIVE_MONITORING = False
 
 
-    list_test_cases = total_test_cases()
+
+    #list_test_cases = total_test_cases()
     #list_test_cases = ['test_index', 'test__python_version', 'test_upload_session', 'test_check_hashes', 'test_store_payload',
     #                  'test_upload_metadata', 'test_close_upload_session']
 
@@ -328,6 +329,7 @@ def consumption_thread_function(verification_obj):
                 # send the verdict
                 # we send the function name, the time of the function call, the verdict report object,
                 # the map of bindings to their line numbers and the date/time of the request the identify it (single threaded...)
+
 
                 if 'yes' in TEST_FRAMEWORK :
                         transaction_time = transaction
@@ -513,12 +515,12 @@ def consumption_thread_function(verification_obj):
             end_test_time = top_pair[4]
             test_name = top_pair[6]
 
-            # We are trying to empty all the test cases in order to terminate the monitoring
-            if test_name in list_test_cases:
-                list_test_cases.remove(test_name)
-
-            if len(list_test_cases) == 0:
-                 continue_monitoring = False
+            # # We are trying to empty all the test cases in order to terminate the monitoring
+            # if test_name in list_test_cases:
+            #     list_test_cases.remove(test_name)
+            #
+            # if len(list_test_cases) == 0:
+            #      continue_monitoring = False
 
             if status.failures:
                     test_result = "Fail"
@@ -538,7 +540,6 @@ def consumption_thread_function(verification_obj):
              "end_time"    : end_test_time.isoformat()
 
             }
-
 
             json.loads(requests.post(
                 os.path.join(VERDICT_SERVER_URL, "insert_test_data/"),
@@ -854,7 +855,6 @@ class Verification(object):
             return datetime.datetime.utcnow()
 
     def send_event(self, event_description):
-        print( "Looking at the events --->>> id : %s , event: %s"%(id(self),event_description))
         if not (self.initialisation_failure):
             self.consumption_queue.put(event_description)
 

@@ -233,6 +233,7 @@ def consumption_thread_function(verification_obj):
 
         if top_pair[0] == "test_transaction":
             transaction = top_pair[1]
+            vypr_output("Test Transaction >> %s" %str(top_pair))
             continue
 
 

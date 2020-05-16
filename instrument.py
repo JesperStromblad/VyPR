@@ -881,7 +881,7 @@ def instrument_test_cases(test_ast, class_name, formula_hash, instrument_functio
         ## Adding imports first to the test cases
 
         import_code = "from %s import vypr" % VYPR_MODULE
-        vypr_add_import = 'from test import vypr'
+        vypr_add_import = 'from %s import vypr' % VYPR_MODULE
 #        datetime_import = 'from datetime import datetime as vypr_dt'
 
         import_vypr_add_ast = ast.parse(vypr_add_import).body[0]

@@ -393,7 +393,6 @@ def get_instrumentation_points_from_comp_sequence(value_from_binding, moves):
 
     return instrumentation_points
 
-
 def instrument_point_state(state, name, point, binding_space_indices,
                            atom_index, atom_sub_index, instrumentation_point_db_ids,
                            measure_attribute=None):
@@ -407,21 +406,29 @@ def instrument_point_state(state, name, point, binding_space_indices,
     if measure_attribute == "length":
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = len(%s); " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
+        time_attained_instrument = "time_attained_%s = %s.get_time('point instrument');" % \
+                                   (state_variable_alias, VYPR_OBJ)
+        time_attained_variable = "time_attained_%s" % state_variable_alias
     elif measure_attribute == "type":
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = type(%s).__name__; " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
+        time_attained_instrument = "time_attained_%s = %s.get_time('point instrument');" % \
+                                   (state_variable_alias, VYPR_OBJ)
+        time_attained_variable = "time_attained_%s" % state_variable_alias
     elif measure_attribute == "time_attained":
         state_variable_alias = "time_attained_%i" % atom_sub_index
-        state_recording_instrument = "record_state_%s = %s.get_time(); " % (state_variable_alias,VYPR_OBJ)
+        state_recording_instrument = "record_state_%s = %s.get_time('point instrument'); " % \
+                                     (state_variable_alias, VYPR_OBJ)
         time_attained_instrument = state_recording_instrument
+        time_attained_variable = "record_state_%s" % state_variable_alias
         # the only purpose here is to match what is expected in the monitoring algorithm
         name = "time"
     else:
         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
         state_recording_instrument = "record_state_%s = %s; " % (state_variable_alias, name)
-        time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
+        time_attained_instrument = "time_attained_%s = %s.get_time('point instrument');" % \
+                                   (state_variable_alias, VYPR_OBJ)
+        time_attained_variable = "time_attained_%s" % state_variable_alias
 
     # note that observed_value is used three times:
     # 1) to capture the time attained by the state for checking of a property - this is duplicated
@@ -439,12 +446,10 @@ def instrument_point_state(state, name, point, binding_space_indices,
         atom_sub_index=atom_sub_index,
         instrumentation_point_db_id=instrumentation_point_db_ids,
         atom_program_variable=name,
-        time_attained = ("time_attained_%s" % state_variable_alias),
+        time_attained=time_attained_variable,
         observed_value=("record_state_%s" % state_variable_alias)
     )
     state_recording_instrument += "%s((%s))" % (VERIFICATION_INSTRUCTION, instrument_tuple)
-
-
 
     time_attained_ast = ast.parse(time_attained_instrument).body[0]
     record_state_ast = ast.parse(state_recording_instrument).body[0]
@@ -515,6 +520,128 @@ def instrument_point_state(state, name, point, binding_space_indices,
             parent_block.insert(index_in_block + 1, queue_ast)
             parent_block.insert(index_in_block + 1, record_state_ast)
             parent_block.insert(index_in_block + 1, time_attained_ast)
+
+# def instrument_point_state(state, name, point, binding_space_indices,
+#                            atom_index, atom_sub_index, instrumentation_point_db_ids,
+#                            measure_attribute=None):
+#     """
+#     state is the PyCFTL object, and point is the part of the SCFG found by traversal.
+#     """
+#     global VERIFICATION_INSTRUCTION
+#
+#     logger.log("Instrumenting point %s" % point)
+#
+#     if measure_attribute == "length":
+#         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
+#         state_recording_instrument = "record_state_%s = len(%s); " % (state_variable_alias, name)
+#         time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
+#     elif measure_attribute == "type":
+#         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
+#         state_recording_instrument = "record_state_%s = type(%s).__name__; " % (state_variable_alias, name)
+#         time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
+#     elif measure_attribute == "time_attained":
+#         state_variable_alias = "time_attained_%i" % atom_sub_index
+#         state_recording_instrument = "record_state_%s = %s.get_time(); " % (state_variable_alias,VYPR_OBJ)
+#         time_attained_instrument = state_recording_instrument
+#         # the only purpose here is to match what is expected in the monitoring algorithm
+#         name = "time"
+#     else:
+#         state_variable_alias = name.replace(".", "_").replace("(", "__").replace(")", "__")
+#         state_recording_instrument = "record_state_%s = %s; " % (state_variable_alias, name)
+#         time_attained_instrument = "time_attained_%s = %s.get_time();" % (state_variable_alias,VYPR_OBJ)
+#
+#     # note that observed_value is used three times:
+#     # 1) to capture the time attained by the state for checking of a property - this is duplicated
+#     #    because we have the start and end time of the state, which is the same because states are instantaneous.
+#     # 3) to capture the time at which an observation was received - it makes sense that these times would
+#     #    be the same.
+#     instrument_tuple = ("'{formula_hash}', 'instrument', '{function_qualifier}', {binding_space_index}, "
+#                         "{atom_index}, {atom_sub_index}, {instrumentation_point_db_id}, {time_attained}, "
+#                         "{time_attained}, {{ '{atom_program_variable}' : {observed_value} }}, __thread_id") \
+#         .format(
+#         formula_hash=formula_hash,
+#         function_qualifier=instrument_function_qualifier,
+#         binding_space_index=binding_space_indices,
+#         atom_index=atom_index,
+#         atom_sub_index=atom_sub_index,
+#         instrumentation_point_db_id=instrumentation_point_db_ids,
+#         atom_program_variable=name,
+#         time_attained = ("time_attained_%s" % state_variable_alias),
+#         observed_value=("record_state_%s" % state_variable_alias)
+#     )
+#     state_recording_instrument += "%s((%s))" % (VERIFICATION_INSTRUCTION, instrument_tuple)
+#
+#
+#
+#     time_attained_ast = ast.parse(time_attained_instrument).body[0]
+#     record_state_ast = ast.parse(state_recording_instrument).body[0]
+#     queue_ast = ast.parse(state_recording_instrument).body[1]
+#
+#     if type(state) is SourceStaticState or type(state) is DestinationStaticState:
+#         # if the state we're measuring a property of is derived from a source/destination operator,
+#         # then the instrumentation point we're given is an SCFG edge which contains
+#         # an instruction for us to place a state recording instrument before
+#
+#         logger.log("Adding state recording instrument for source or target.")
+#
+#         parent_block = point._instruction._parent_body
+#
+#         record_state_ast.lineno = point._instruction.lineno
+#         record_state_ast.col_offset = point._instruction.col_offset
+#         queue_ast.lineno = point._instruction.lineno
+#         queue_ast.col_offset = point._instruction.col_offset
+#
+#         index_in_block = parent_block.index(point._instruction)
+#
+#         if type(state) is SourceStaticState:
+#             # for source state recording, we record the state, but only insert its value after
+#             # this is so triggers can be inserted before normal instruments without introducing
+#             # a special case for trigger insertion
+#             parent_block.insert(index_in_block, queue_ast)
+#             parent_block.insert(index_in_block, record_state_ast)
+#             parent_block.insert(index_in_block, time_attained_ast)
+#         elif type(state) is DestinationStaticState:
+#             parent_block.insert(index_in_block + 1, queue_ast)
+#             parent_block.insert(index_in_block + 1, record_state_ast)
+#             parent_block.insert(index_in_block + 1, time_attained_ast)
+#
+#     else:
+#
+#         if point._name_changed == ["loop"]:
+#             # we're instrumenting the change of a loop variable
+#             logger.log("Performing instrumentation for loop variable.")
+#             # determine the edge leading into the loop body
+#             for edge in point.edges:
+#                 if edge._condition == ["enter-loop"]:
+#                     # place an instrument before the instruction on this edge
+#                     parent_block = edge._instruction._parent_body
+#                     record_state_ast.lineno = edge._instruction.lineno
+#                     record_state_ast.col_offset = edge._instruction.col_offset
+#                     queue_ast.lineno = edge._instruction.lineno
+#                     queue_ast.col_offset = edge._instruction.col_offset
+#                     index_in_block = parent_block.index(edge._instruction)
+#                     # insert instruments in reverse order
+#                     parent_block.insert(index_in_block + 1, queue_ast)
+#                     parent_block.insert(index_in_block + 1, record_state_ast)
+#                     parent_block.insert(index_in_block + 1, time_attained_ast)
+#         else:
+#             # we're instrumenting a normal vertex where there is an explicit instruction
+#             logger.log("Not source or destination state - performing normal instrumentation.")
+#             incident_edge = point._previous_edge
+#             parent_block = incident_edge._instruction._parent_body
+#
+#             record_state_ast.lineno = incident_edge._instruction.lineno
+#             record_state_ast.col_offset = incident_edge._instruction.col_offset
+#             queue_ast.lineno = incident_edge._instruction.lineno
+#             queue_ast.col_offset = incident_edge._instruction.col_offset
+#
+#             index_in_block = parent_block.index(incident_edge._instruction)
+#
+#             # insert instruments in reverse order
+#
+#             parent_block.insert(index_in_block + 1, queue_ast)
+#             parent_block.insert(index_in_block + 1, record_state_ast)
+#             parent_block.insert(index_in_block + 1, time_attained_ast)
 
 
 def instrument_point_transition(atom, point, binding_space_indices, atom_index,

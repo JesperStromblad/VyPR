@@ -1116,7 +1116,7 @@ if __name__ == "__main__":
     # first, check that the verdict server is reachable
     if not (is_verdict_server_reachable()):
         print("Verdict server is not reachable.  Ending instrumentation - nothing has been done.")
-        exit()
+
 
     SETUP_ONCE = False
 
@@ -1137,6 +1137,8 @@ if __name__ == "__main__":
                     # delete bytecode
                     os.remove(f.replace(".py.inst", BYTECODE_EXTENSION))
                     logger.log("Reset file %s to uninstrumented version." % f)
+
+
 
     logger.log("Importing PyCFTL queries...")
     # load in verification config file

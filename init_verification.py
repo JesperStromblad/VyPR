@@ -203,7 +203,6 @@ def consumption_thread_function(verification_obj):
         except:
             # Changing flag to false here because in normal testing, end-monitoring does not change to False.
             # If exception is raised we just terminate the monitoring
-            print("Getting stuck here! because queue is empty")
             continue
 
 

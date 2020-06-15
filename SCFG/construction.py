@@ -156,6 +156,20 @@ def get_attr_name_string(obj, omit_subscripts=False):
         return attr_string
 
 
+def get_first_instruction_from_block(block):
+    """
+    Given a list of AST objects, get the first one that isn't a comment.
+    """
+    first_non_comment_index = 0
+    for (n, obj) in enumerate(block):
+        if type(obj) is ast.Expr and hasattr(obj, "value") and hasattr(obj.value, "s"):
+            # this statement is a comment so we skipe it
+            continue
+        else:
+            first_non_comment_index = n
+    return first_non_comment_index
+
+
 class CFGVertex(object):
     """
     This class represents a vertex in a control flow graph.
@@ -477,9 +491,11 @@ class CFG(object):
                 )
                 # add to the list of final vertices that need to be connected to the post-conditional vertex
                 final_conditional_vertices += final_vertices
+                # get first non comment instruction index in block
+                first_non_comment_index = get_first_instruction_from_block(current_conditional[0].body)
                 # add the branching statement
                 self.branch_initial_statements.append(
-                    ["conditional", current_conditional[0].body[0], branch_number]
+                    ["conditional", current_conditional[0].body[first_non_comment_index], branch_number]
                 )
                 branch_number += 1
 
@@ -501,9 +517,11 @@ class CFG(object):
                             )
                             # add to the list of final vertices that need to be connected to the post-conditional vertex
                             final_conditional_vertices += final_vertices
+                            # get first non comment instruction index in block
+                            first_non_comment_index = get_first_instruction_from_block(current_conditional[0].body)
                             # add the branching statement
                             self.branch_initial_statements.append(
-                                ["conditional", current_conditional[0].body[0], branch_number]
+                                ["conditional", current_conditional[0].body[first_non_comment_index], branch_number]
                             )
                             branch_number += 1
 
@@ -605,12 +623,20 @@ class CFG(object):
                 current_vertices = [empty_conditional_vertex]
 
                 blocks = []
-                self.branch_initial_statements.append(["try-catch", entry.body[0], "try-catch-main"])
+                # get first non comment instruction index in block
+                first_non_comment_index = get_first_instruction_from_block(entry.body)
+                self.branch_initial_statements.append(
+                    ["try-catch", entry.body[first_non_comment_index], "try-catch-main"]
+                )
 
                 # print("except handling blocks are:")
 
                 for except_handler in entry.handlers:
-                    self.branch_initial_statements.append(["try-catch", except_handler.body[0], "try-catch-handler"])
+                    # get first non comment instruction index in block
+                    first_non_comment_index = get_first_instruction_from_block(except_handler.body)
+                    self.branch_initial_statements.append(
+                        ["try-catch", except_handler.body[first_non_comment_index], "try-catch-handler"]
+                    )
                     # print(except_handler.body)
                     blocks.append(except_handler.body)
 
@@ -714,9 +740,13 @@ class CFG(object):
                     empty_post_loop_vertex
                 )
 
+                # get first non comment instruction index in block
+                first_non_comment_index = get_first_instruction_from_block(entry.body)
                 # for a for loop, we add a path recording instrument at the beginning of the loop body
                 # and after the loop body
-                self.branch_initial_statements.append(["loop", entry.body[0], "enter-loop", entry, "end-loop"])
+                self.branch_initial_statements.append(
+                    ["loop", entry.body[first_non_comment_index], "enter-loop", entry, "end-loop"]
+                )
 
                 # add 2 edges from the final_vertex - one going back to the pre-loop vertex
                 # with the positive condition, and one going to the post loop vertex.

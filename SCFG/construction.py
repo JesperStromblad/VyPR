@@ -455,13 +455,15 @@ class CFG(object):
 
             elif ast_is_if(entry):
 
+                print("--processing if-statement at line %i--" % entry.lineno)
+
                 entry._parent_body = block
                 path_length += 1
 
                 # if this conditional isn't the last element in its block, we need to place a post-conditional
                 # path recording instrument after it
                 if entry != entry._parent_body[-1]:
-                    self.branch_initial_statements.append(["post-conditional", entry])
+                    self.branch_initial_statements.append(["post-conditional", entry, entry.lineno])
 
                 # insert intermediate control flow vertex at the beginning of the block
                 empty_conditional_vertex = CFGVertex(structure_obj=entry)
@@ -480,94 +482,56 @@ class CFG(object):
                 current_conditional = [entry]
                 final_else_is_present = False
                 final_conditional_vertices = []
-                branch_number = 0
 
-                # process the main body, and then iterate downwards
+                # get first non comment instruction index in block
+                first_non_comment_index = get_first_instruction_from_block(current_conditional[0].body)
+
+                # add the branching statement for the conditional body
+                self.branch_initial_statements.append(
+                    ["conditional-body", current_conditional[0], 0, current_conditional[0].lineno]
+                )
+
+                # recurse on the main body
                 final_vertices = self.process_block(
                     current_conditional[0].body,
                     current_vertices,
                     [current_conditional[0].test],
                     closest_loop
                 )
+
                 # add to the list of final vertices that need to be connected to the post-conditional vertex
                 final_conditional_vertices += final_vertices
-                # get first non comment instruction index in block
-                first_non_comment_index = get_first_instruction_from_block(current_conditional[0].body)
-                # add the branching statement
+
+                # recurse on the else block, if there's anything there
+                if len(current_conditional[0].orelse) > 0:
+                    print("else block found for line %i" % entry.lineno)
+                    # recurse on else-block
+                    final_vertices = self.process_block(
+                        current_conditional[0].orelse,
+                        current_vertices,
+                        [current_conditional[0].test],
+                        closest_loop
+                    )
+                    # add final vertices to list of vertices that need to be linked to the end of the current if-block
+                    final_conditional_vertices += final_vertices
+                    # remember that we've seen a final else-block
+                    final_else_is_present = True
+                else:
+                    print("no else block found for line %i" % entry.lineno)
+
+                # add the branching statement for the else-block
                 self.branch_initial_statements.append(
-                    ["conditional", current_conditional[0].body[first_non_comment_index], branch_number]
+                    ["conditional-else", current_conditional[0], 1, current_conditional[0].lineno]
                 )
-                branch_number += 1
 
-                # we now repeat the same, but iterating through the conditional structure
-                while type(current_conditional[0]) is ast.If:
-                    current_conditional = current_conditional[0].orelse
-                    if len(current_conditional) == 1:
-
-                        # there is just another conditional block, so process it as if it were a branch
-                        if type(current_conditional[0]) is ast.If:
-                            # pairs.append(
-                            #     (current_condition_set + [current_conditional[0].test], current_conditional[0].body))
-                            # current_condition_set.append(formula_tree.lnot(current_conditional[0].test))
-                            final_vertices = self.process_block(
-                                current_conditional[0].body,
-                                current_vertices,
-                                [current_conditional[0].test],
-                                closest_loop
-                            )
-                            # add to the list of final vertices that need to be connected to the post-conditional vertex
-                            final_conditional_vertices += final_vertices
-                            # get first non comment instruction index in block
-                            first_non_comment_index = get_first_instruction_from_block(current_conditional[0].body)
-                            # add the branching statement
-                            self.branch_initial_statements.append(
-                                ["conditional", current_conditional[0].body[first_non_comment_index], branch_number]
-                            )
-                            branch_number += 1
-
-                        else:
-                            # the else block contains an instruction that isn't a conditional
-                            # pairs.append((current_condition_set, current_conditional))
-                            final_vertices = self.process_block(
-                                current_conditional,
-                                current_vertices,
-                                ["else"],
-                                closest_loop
-                            )
-                            # we reached an else block
-                            final_else_is_present = True
-                            # add to the list of final vertices that need to be connected to the post-conditional vertex
-                            final_conditional_vertices += final_vertices
-                            # add the branching statement
-                            self.branch_initial_statements.append(
-                                ["conditional", current_conditional[0], branch_number]
-                            )
-                            branch_number += 1
-
-                    elif len(current_conditional) > 1:
-                        # there are multiple blocks inside the orelse, so we can't treat this like another branch
-                        final_vertices = self.process_block(
-                            current_conditional,
-                            current_vertices,
-                            ["else"],
-                            closest_loop
-                        )
-                        final_conditional_vertices += final_vertices
-                        self.branch_initial_statements.append(
-                            ["conditional", current_conditional[0], branch_number]
-                        )
-                        # we reached an else block
-                        final_else_is_present = True
-                    else:
-                        # nowhere else to go in the traversal
-                        break
-
-                # we include the vertex before the conditional, only if there was no else
-                if not (final_else_is_present):
-                    # we add a branching statement - the branch number is just the number of pairs we found
-                    self.branch_initial_statements.append(["conditional-no-else", entry, branch_number])
+                # if we didn't find an else-block, we need an edge going around the if-block
+                if not final_else_is_present:
+                    # all vertices present before the final conditional also need to be linked up
+                    # since there was no else-block
                     current_vertices = final_conditional_vertices + current_vertices
                 else:
+                    # the vertices that now need to be linked up by the next block processed
+                    # are those constructed for the if-block
                     current_vertices = final_conditional_vertices
 
                 # filter out vertices that were returns or raises
@@ -579,8 +543,7 @@ class CFG(object):
                 ))
 
                 # add an empty "control flow" vertex after the conditional
-                # to avoid transition duplication along the edges leaving
-                # the conditional
+                # to avoid duplication of edges leaving the conditional
                 if len(current_vertices) > 0:
                     empty_vertex = CFGVertex()
                     empty_vertex._name_changed = ['post-conditional']
@@ -603,6 +566,73 @@ class CFG(object):
                 # reset path length for instructions after conditional
                 path_length = 0
 
+                # branch_number += 1
+                #
+                # # we now repeat the same, but iterating through the conditional structure
+                # while type(current_conditional[0]) is ast.If:
+                #     current_conditional = current_conditional[0].orelse
+                #     if len(current_conditional) == 1:
+                #
+                #         # there is just another conditional block, so process it as if it were a branch
+                #         if type(current_conditional[0]) is ast.If:
+                #             print("processing else block with other if block")
+                #             # pairs.append(
+                #             #     (current_condition_set + [current_conditional[0].test], current_conditional[0].body))
+                #             # current_condition_set.append(formula_tree.lnot(current_conditional[0].test))
+                #             final_vertices = self.process_block(
+                #                 current_conditional[0].body,
+                #                 current_vertices,
+                #                 [current_conditional[0].test],
+                #                 closest_loop
+                #             )
+                #             # add to the list of final vertices that need to be connected to the post-conditional vertex
+                #             final_conditional_vertices += final_vertices
+                #             # get first non comment instruction index in block
+                #             first_non_comment_index = get_first_instruction_from_block(current_conditional[0].body)
+                #             # add the branching statement
+                #             self.branch_initial_statements.append(
+                #                 ["conditional", current_conditional[0].body[first_non_comment_index], branch_number]
+                #             )
+                #             branch_number += 1
+                #
+                #         else:
+                #             print("processing else block with non-if block")
+                #             # the else block contains an instruction that isn't a conditional
+                #             # pairs.append((current_condition_set, current_conditional))
+                #             final_vertices = self.process_block(
+                #                 current_conditional,
+                #                 current_vertices,
+                #                 ["else"],
+                #                 closest_loop
+                #             )
+                #             # we reached an else block
+                #             final_else_is_present = True
+                #             # add to the list of final vertices that need to be connected to the post-conditional vertex
+                #             final_conditional_vertices += final_vertices
+                #             # add the branching statement
+                #             self.branch_initial_statements.append(
+                #                 ["conditional", current_conditional[0], branch_number]
+                #             )
+                #             branch_number += 1
+                #
+                #     elif len(current_conditional) > 1:
+                #         # there are multiple blocks inside the orelse, so we can't treat this like another branch
+                #         final_vertices = self.process_block(
+                #             current_conditional,
+                #             current_vertices,
+                #             ["else"],
+                #             closest_loop
+                #         )
+                #         final_conditional_vertices += final_vertices
+                #         self.branch_initial_statements.append(
+                #             ["conditional", current_conditional[0], branch_number]
+                #         )
+                #         # we reached an else block
+                #         final_else_is_present = True
+                #     else:
+                #         # nowhere else to go in the traversal
+                #         break
+
             elif ast_is_try(entry):
                 entry._parent_body = block
                 path_length += 1
@@ -624,18 +654,18 @@ class CFG(object):
 
                 blocks = []
                 # get first non comment instruction index in block
-                first_non_comment_index = get_first_instruction_from_block(entry.body)
+                #first_non_comment_index = get_first_instruction_from_block(entry.body)
                 self.branch_initial_statements.append(
-                    ["try-catch", entry.body[first_non_comment_index], "try-catch-main"]
+                    ["try-catch", entry, "try-catch-main"]
                 )
 
                 # print("except handling blocks are:")
 
                 for except_handler in entry.handlers:
                     # get first non comment instruction index in block
-                    first_non_comment_index = get_first_instruction_from_block(except_handler.body)
+                    #first_non_comment_index = get_first_instruction_from_block(except_handler.body)
                     self.branch_initial_statements.append(
-                        ["try-catch", except_handler.body[first_non_comment_index], "try-catch-handler"]
+                        ["try-catch", except_handler, "try-catch-handler"]
                     )
                     # print(except_handler.body)
                     blocks.append(except_handler.body)

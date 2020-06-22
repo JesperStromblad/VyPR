@@ -596,8 +596,12 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
     # this is done independent of binding space computation
     for vertex_information in scfg.branch_initial_statements:
         logger.log("-" * 100)
-        if vertex_information[0] in ['conditional', 'try-catch']:
-            if vertex_information[0] == 'conditional':
+        if vertex_information[0] in ['conditional-body', 'try-catch']:
+
+            print("placing main clause instrument for conditional at line %i" % vertex_information[1].lineno)
+
+            if vertex_information[0] == 'conditional-body':
+
                 logger.log(
                     "Placing branch recording instrument for conditional with first instruction %s in "
                     "block" %
@@ -618,6 +622,7 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
                 condition_dict = {
                     "serialised_condition": vertex_information[2]
                 }
+
             # if the condition already exists in the database, the verdict server will return the
             # existing ID
             try:
@@ -633,13 +638,15 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 branching_condition_id)
             instrument_ast = ast.parse(instrument_code).body[0]
-            index_in_parent = vertex_information[1]._parent_body.index(vertex_information[1])
-            vertex_information[1]._parent_body.insert(index_in_parent, instrument_ast)
+            #index_in_parent = vertex_information[1].body.index(vertex_information[1])
+            vertex_information[1].body.insert(0, instrument_ast)
             logger.log("Branch recording instrument placed")
-        elif vertex_information[0] == "conditional-no-else":
-            # no else was present in the conditional, so we add a path recording instrument
-            # to the else block
-            logger.log("Placing branch recording instrument for conditional with no else")
+
+        elif vertex_information[0] == "conditional-else":
+
+            # an else block was found, so we add an instrument at the beginning
+            logger.log("Placing branch recording instrument for conditional with else")
+
             # send branching condition to verdict server, take the ID from the response and use it in
             # the path recording instruments.
             condition_dict = {
@@ -659,10 +666,13 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
             instrument_code = "%s((\"%s\", \"path\", \"%s\", %i))" % (
                 VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier,
                 branching_condition_id)
+
             instrument_ast = ast.parse(instrument_code).body[0]
             vertex_information[1].orelse.insert(0, instrument_ast)
             logger.log("Branch recording instrument placed")
+
         elif vertex_information[0] in ['post-conditional', 'post-try-catch']:
+
             if vertex_information[0] == 'post-conditional':
                 logger.log("Processing post conditional path instrument")
                 logger.log(vertex_information)
@@ -712,7 +722,9 @@ def place_path_recording_instruments(scfg, instrument_function_qualifier, formul
             logger.log(index_in_parent)
             vertex_information[1]._parent_body.insert(index_in_parent, instrument_code_ast)
             logger.log(vertex_information[1]._parent_body)
+
         elif vertex_information[0] == 'loop':
+
             logger.log(
                 "Placing branch recording instrument for loop with first instruction %s in body" %
                 vertex_information[1])
@@ -1276,6 +1288,9 @@ if __name__ == "__main__":
             scfg = CFG(reference_variables=reference_variables)
             scfg_vertices = scfg.process_block(function_def.body)
 
+            import pprint
+            pprint.pprint(scfg.branch_initial_statements)
+
             top_level_block = function_def.body
 
             logger.log("SCFG constructed.")
@@ -1740,12 +1755,12 @@ if __name__ == "__main__":
 
 
 
-                # write the instrumented scfg to a file
-                instrumented_scfg = CFG()
-                instrumented_scfg.process_block(top_level_block)
-                write_scfg_to_file(instrumented_scfg, "%s-%s-%s-instrumented.gv" %
-                                   (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
-                                    function.replace(".", "-")))
+                # # write the instrumented scfg to a file
+                # instrumented_scfg = CFG()
+                # instrumented_scfg.process_block(top_level_block)
+                # write_scfg_to_file(instrumented_scfg, "%s-%s-%s-instrumented.gv" %
+                #                    (file_name_without_extension.replace(".", ""), module.replace(".", "-"),
+                #                     function.replace(".", "-")))
 
                 # check for existence of directories for intermediate data and create them if not found
                 if not (os.path.isdir("binding_spaces")):

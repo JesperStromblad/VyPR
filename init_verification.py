@@ -512,52 +512,47 @@ def consumption_thread_function(verification_obj):
                                                            program_path=len(program_path), state_dict=state_dict)
 
 
-        if instrument_type == "test_status":
+            if instrument_type == "test_status":
 
 
 
-            # verified_function = top_pair[1]
-            status = top_pair[2]
-            start_test_time = top_pair[3]
-            end_test_time = top_pair[4]
-            test_name = top_pair[6]
+                # verified_function = top_pair[1]
+                status = top_pair[2]
+                start_test_time = top_pair[3]
+                end_test_time = top_pair[4]
+                test_name = top_pair[6]
 
-            # # We are trying to empty all the test cases in order to terminate the monitoring
-            # if test_name in list_test_cases:
-            #     list_test_cases.remove(test_name)
-            #
-            # if len(list_test_cases) == 0:
-            #      continue_monitoring = False
+                # # We are trying to empty all the test cases in order to terminate the monitoring
+                # if test_name in list_test_cases:
+                #     list_test_cases.remove(test_name)
+                #
+                # if len(list_test_cases) == 0:
+                #      continue_monitoring = False
 
-            if status.failures:
-                    test_result = "Fail"
-            elif status.errors:
-                    test_result = "Error"
-            else:
-                    test_result = "Success"
-
-
-            # If test data exists.
+                if status.failures:
+                        test_result = "Fail"
+                elif status.errors:
+                        test_result = "Error"
+                else:
+                        test_result = "Success"
 
 
-            test_data = {
-             "test_name"   : test_name,
-             "test_result" : test_result,
-             "start_time"  : start_test_time.isoformat(),
-             "end_time"    : end_test_time.isoformat()
+                # If test data exists.
 
-            }
 
-            json.loads(requests.post(
-                os.path.join(VERDICT_SERVER_URL, "insert_test_data/"),
-                data=json.dumps(test_data)
-            ).text)
+                test_data = {
+                 "test_name"   : test_name,
+                 "test_result" : test_result,
+                 "start_time"  : start_test_time.isoformat(),
+                 "end_time"    : end_test_time.isoformat()
 
-            # To terminate
-            #if top_pair[5] >= TOTAL_TEST_RUN:
-            #     continue_monitoring = False
+                }
 
-            #
+                json.loads(requests.post(
+                    os.path.join(VERDICT_SERVER_URL, "insert_test_data/"),
+                    data=json.dumps(test_data)
+                ).text)
+
 
 
         # set the task as done
@@ -681,7 +676,7 @@ class Verification(object):
 
         # read configuration file
         inst_configuration = read_configuration("vypr.config")
-        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT, VYPR_MODULE, TOTAL_TEST_RUN
+        global VERDICT_SERVER_URL, VYPR_OUTPUT_VERBOSE, PROJECT_ROOT, VYPR_MODULE, TOTAL_TEST_RUN, TEST_FRAMEWORK
         VERDICT_SERVER_URL = inst_configuration.get("verdict_server_url") if inst_configuration.get(
             "verdict_server_url") else "http://localhost:9001/"
         VYPR_OUTPUT_VERBOSE = inst_configuration.get("verbose") if inst_configuration.get("verbose") else True

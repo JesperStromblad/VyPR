@@ -913,8 +913,8 @@ def place_function_begin_instruments(function_def, formula_hashes, instrument_fu
     formula_hashes = ",".join(map(lambda hash : "'%s'" % hash, formula_hashes))
     formula_hashes_as_list = "[%s]" % formula_hashes
     start_instrument = \
-        "%s((\"%s\", \"function\", \"%s\", \"start\", vypr_start_time, \"%s\", __thread_id))" \
-        % (VERIFICATION_INSTRUCTION, formula_hash, instrument_function_qualifier, formula_hash)
+        "%s((\"function\", %s, \"%s\", \"start\", vypr_start_time, \"%s\", __thread_id))" \
+        % (VERIFICATION_INSTRUCTION, formula_hashes_as_list, instrument_function_qualifier, formula_hash)
 
     verfication_test_start_time_ast = ast.parse(verification_test_start_code).body[0]
     threading_import_ast = ast.parse(thread_id_capture).body[0]
@@ -943,9 +943,15 @@ def place_function_end_instruments(function_def, scfg, formula_hashes, instrumen
     for end_vertex in scfg.return_statements:
 
         end_instrument = \
-            "%s((\"%s\", \"function\", \"%s\", \"end\", vypr.get_time(), \"%s\", __thread_id, " \
-            "%s.get_time('end-instrument')))" \
-            % (VERIFICATION_INSTRUCTION, formula_hashes_as_list, instrument_function_qualifier, formula_hash, VYPR_OBJ)
+            "%s((\"function\", %s, \"%s\", \"end\", flask.g.request_time, \"%s\", __thread_id, " \
+            "%s.get_time('end instrument')))" \
+            % (
+                VERIFICATION_INSTRUCTION,
+                formula_hashes_as_list,
+                instrument_function_qualifier,
+                formula_hash,
+                VYPR_OBJ
+            )
 
         end_ast = ast.parse(end_instrument).body[0]
 
@@ -961,10 +967,10 @@ def place_function_end_instruments(function_def, scfg, formula_hashes, instrumen
 
     # if the last instruction in the ast is not a return statement, add an end instrument at the end
     if not (type(function_def.body[-1]) is ast.Return):
-        end_instrument = \
-            "%s((\"%s\", \"function\", \"%s\", \"end\", vypr.get_time(), \"%s\", __thread_id, " \
-            "%s.get_time('end-instrument')))" \
-            % (VERIFICATION_INSTRUCTION, formula_hash_as_list, instrument_function_qualifier,formula_hash, VYPR_OBJ)
+        end_instrument = "%s((\"function\", %s, \"%s\", \"end\", flask.g.request_time, \"%s\", __thread_id, " \
+                         "%s.get_time('end instrument')))" \
+                         % (VERIFICATION_INSTRUCTION, formula_hashes_as_list, instrument_function_qualifier,
+                            formula_hash, VYPR_OBJ)
 
 
         end_ast = ast.parse(end_instrument).body[0]
@@ -1874,9 +1880,9 @@ if __name__ == "__main__":
 
                 # finally, insert an instrument at the beginning to tell the monitoring thread that a new call of the
                 # function has started and insert one at the end to signal a return
-                place_function_begin_instruments(function_def, formula_hash, instrument_function_qualifier)
+                place_function_begin_instruments(function_def, property_hashes, instrument_function_qualifier)
                 # also insert instruments at the end(s) of the function
-                place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier, is_flask)
+                place_function_end_instruments(function_def, scfg, property_hashes, instrument_function_qualifier, is_flask)
 
                 if not SETUP_ONCE:
                     test_modules = get_test_modules(is_test_module, module)

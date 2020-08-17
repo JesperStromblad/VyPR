@@ -123,8 +123,9 @@ class StateValueInOpenInterval(Atom):
         return "(%s)(%s) in %s" % (self._state, self._name, self.d_interval)
 
     def __eq__(self, other_atom):
-        if type(other_atom) is StateValueInInterval:
-            return self._state == other_atom._state and self._name == other_atom._name and self._interval == other_atom._interval
+        if type(other_atom) is StateValueInOpenInterval:
+            return (self._state == other_atom._state and self._name == other_atom._name
+                    and self._interval == other_atom._interval)
         else:
             return False
 
@@ -151,7 +152,7 @@ class StateValueEqualTo(Atom):
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueEqualTo:
-            return (self._state == other_atom._state and self._name == other_atom._name \
+            return (self._state == other_atom._state and self._name == other_atom._name
                     and self._value == other_atom._value)
         else:
             return False
@@ -176,7 +177,7 @@ class StateValueTypeEqualTo(Atom):
 
     def __eq__(self, other_atom):
         if type(other_atom) is StateValueTypeEqualTo:
-            return (self._state == other_atom._state and self._name == other_atom._name \
+            return (self._state == other_atom._state and self._name == other_atom._name
                     and self._value == other_atom._value)
         else:
             return False
@@ -227,6 +228,90 @@ class StateValueEqualToMixed(Atom):
             )
             return lhs_with_arithmetic == rhs_with_arithmetic
 
+class StateValueLessThanStateValueMixed(Atom):
+    """
+    This class models the atom (s1(x) < s2(y)).
+    """
+
+    def __init__(self, lhs, lhs_name, rhs, rhs_name):
+        self._lhs = lhs
+        self._rhs = rhs
+        self._lhs_name = lhs_name
+        self._rhs_name = rhs_name
+        self.verdict = None
+
+    def __repr__(self):
+        return "(%s)(%s) < (%s)(%s)" % (self._lhs, self._lhs_name, self._rhs, self._rhs_name)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is StateValueLessThanStateValueMixed:
+            return (self._lhs == other_atom._lhs
+                    and self._lhs_name == other_atom._lhs_name
+                    and self._rhs == other_atom._rhs
+                    and self._rhs_name == other_atom._rhs_name)
+        else:
+            return False
+
+    def check(self, cummulative_state):
+        """
+        If either the RHS or LHS are None, we don't try to reach a truth value.
+        But if they are both not equal to None, we check for equality.
+        """
+        if cummulative_state.get(0) is None or cummulative_state.get(1) is None:
+            return None
+        else:
+            lhs_with_arithmetic = apply_arithmetic_stack(
+                self._lhs._arithmetic_stack,
+                cummulative_state[0][0][self._lhs_name]
+            )
+            rhs_with_arithmetic = apply_arithmetic_stack(
+                self._rhs._arithmetic_stack,
+                cummulative_state[1][0][self._rhs_name]
+            )
+            return lhs_with_arithmetic < rhs_with_arithmetic
+
+class StateValueLessThanEqualStateValueMixed(Atom):
+    """
+    This class models the atom (s1(x) <= s2(y)).
+    """
+
+    def __init__(self, lhs, lhs_name, rhs, rhs_name):
+        self._lhs = lhs
+        self._rhs = rhs
+        self._lhs_name = lhs_name
+        self._rhs_name = rhs_name
+        self.verdict = None
+
+    def __repr__(self):
+        return "(%s)(%s) <= (%s)(%s)" % (self._lhs, self._lhs_name, self._rhs, self._rhs_name)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is StateValueLessThanEqualStateValueMixed:
+            return (self._lhs == other_atom._lhs
+                    and self._lhs_name == other_atom._lhs_name
+                    and self._rhs == other_atom._rhs
+                    and self._rhs_name == other_atom._rhs_name)
+        else:
+            return False
+
+    def check(self, cummulative_state):
+        """
+        If either the RHS or LHS are None, we don't try to reach a truth value.
+        But if they are both not equal to None, we check for equality.
+        """
+        if cummulative_state.get(0) is None or cummulative_state.get(1) is None:
+            return None
+        else:
+            lhs_with_arithmetic = apply_arithmetic_stack(
+                self._lhs._arithmetic_stack,
+                cummulative_state[0][0][self._lhs_name]
+            )
+            rhs_with_arithmetic = apply_arithmetic_stack(
+                self._rhs._arithmetic_stack,
+                cummulative_state[1][0][self._rhs_name]
+            )
+            return lhs_with_arithmetic <= rhs_with_arithmetic
+
 
 class StateValueLengthLessThanStateValueLengthMixed(Atom):
     """
@@ -268,9 +353,50 @@ class StateValueLengthLessThanStateValueLengthMixed(Atom):
                 self._rhs._arithmetic_stack,
                 cummulative_state[1][0][self._rhs_name]
             )
-           # print(lhs_with_arithmetic, rhs_with_arithmetic)
-           # print(lhs_with_arithmetic < rhs_with_arithmetic)
             return lhs_with_arithmetic < rhs_with_arithmetic
+
+
+class StateValueLengthLessThanEqualStateValueLengthMixed(Atom):
+    """
+    This class models the atom (s1(x).length() < s2(y).length()).
+    """
+
+    def __init__(self, lhs, lhs_name, rhs, rhs_name):
+        self._lhs = lhs
+        self._rhs = rhs
+        self._lhs_name = lhs_name
+        self._rhs_name = rhs_name
+        self.verdict = None
+
+    def __repr__(self):
+        return "(%s)(%s).length() <= (%s)(%s).length()" % (self._lhs, self._lhs_name, self._rhs, self._rhs_name)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is StateValueLengthLessThanEqualStateValueLengthMixed:
+            return (self._lhs == other_atom._lhs
+                    and self._lhs_name == other_atom._lhs_name
+                    and self._rhs == other_atom._rhs
+                    and self._rhs_name == other_atom._rhs_name)
+        else:
+            return False
+
+    def check(self, cummulative_state):
+        """
+        If either the RHS or LHS are None, we don't try to reach a truth value.
+        But if they are both not equal to None, we check for equality.
+        """
+        if cummulative_state.get(0) is None or cummulative_state.get(1) is None:
+            return None
+        else:
+            lhs_with_arithmetic = apply_arithmetic_stack(
+                self._lhs._arithmetic_stack,
+                cummulative_state[0][0][self._lhs_name]
+            )
+            rhs_with_arithmetic = apply_arithmetic_stack(
+                self._rhs._arithmetic_stack,
+                cummulative_state[1][0][self._rhs_name]
+            )
+            return lhs_with_arithmetic <= rhs_with_arithmetic
 
 
 class StateValueLengthInInterval(Atom):
@@ -300,6 +426,33 @@ class StateValueLengthInInterval(Atom):
         """
         return self._interval[0] <= value[0][0][self._name] <= self._interval[1]
 
+class StateValueLengthInOpenInterval(Atom):
+    """
+    This class models the atom (len(s(x)) in I) for open I.
+    """
+
+    def __init__(self, state, name, interval):
+        self._state = state
+        self._name = name
+        self._interval = interval
+        self.verdict = None
+
+    def __repr__(self):
+        return "(%s(%s)).length() in %s" % (self._state, self._name, self._interval)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is StateValueLengthInOpenInterval:
+            return (self._state == other_atom._state and self._name == other_atom._name
+                    and self._interval == other_atom._interval)
+        else:
+            return False
+
+    def check(self, value):
+        """
+        Mandatory check method used by formula trees to compute truth values.
+        """
+        return self._interval[0] < value[0][0][self._name] < self._interval[1]
+
 
 class TransitionDurationInInterval(Atom):
     """
@@ -316,12 +469,35 @@ class TransitionDurationInInterval(Atom):
 
     def __eq__(self, other_atom):
         if type(other_atom) is TransitionDurationInInterval:
-            return (self._transition == other_atom._transition and self._interval == other_atom._interval)
+            return self._transition == other_atom._transition and self._interval == other_atom._interval
         else:
             return False
 
     def check(self, value):
         return self._interval[0] <= value[0][0].total_seconds() <= self._interval[1]
+
+
+class TransitionDurationInOpenInterval(Atom):
+    """
+    This class models the atom (d(delta t) in I).
+    """
+
+    def __init__(self, transition, interval):
+        self._transition = transition
+        self._interval = interval
+        self.verdict = None
+
+    def __repr__(self):
+        return "d(%s) in %s" % (self._transition, self._interval)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is TransitionDurationInOpenInterval:
+            return self._transition == other_atom._transition and self._interval == other_atom._interval
+        else:
+            return False
+
+    def check(self, value):
+        return self._interval[0] < value[0][0].total_seconds() < self._interval[1]
 
 
 class TransitionDurationLessThanTransitionDurationMixed(Atom):
@@ -340,6 +516,37 @@ class TransitionDurationLessThanTransitionDurationMixed(Atom):
 
     def __eq__(self, other_atom):
         if type(other_atom) is TransitionDurationLessThanTransitionDurationMixed:
+            return self._lhs == other_atom._lhs and self._rhs == other_atom._rhs
+        else:
+            return False
+
+    def check(self, cummulative_state):
+        """
+        If either the RHS or LHS are None, we don't try to reach a truth value.
+        But if they are both not equal to None, we check for equality.
+        """
+        if cummulative_state.get(0) is None or cummulative_state.get(1) is None:
+            return None
+        else:
+            return cummulative_state[0][0] < cummulative_state[1][0]
+
+
+class TransitionDurationLessThanEqualTransitionDurationMixed(Atom):
+    """
+    This class models the atom (duration(t1) < duration(t2))
+    for v the duration of another transition.
+    """
+
+    def __init__(self, lhs_transition, rhs_transition):
+        self._lhs = lhs_transition
+        self._rhs = rhs_transition
+        self.verdict = None
+
+    def __repr__(self):
+        return "d(%s) <= d(%s)" % (self._lhs, self._rhs)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is TransitionDurationLessThanEqualTransitionDurationMixed:
             return (self._lhs == other_atom._lhs and
                     self._rhs == other_atom._rhs)
         else:
@@ -353,7 +560,7 @@ class TransitionDurationLessThanTransitionDurationMixed(Atom):
         if cummulative_state.get(0) is None or cummulative_state.get(1) is None:
             return None
         else:
-            return cummulative_state[0][0] < cummulative_state[1][0]
+            return cummulative_state[0][0] <= cummulative_state[1][0]
 
 
 class TransitionDurationLessThanStateValueMixed(Atom):
@@ -394,6 +601,44 @@ class TransitionDurationLessThanStateValueMixed(Atom):
             return cummulative_state[0][0].total_seconds() < rhs_with_arithmetic
 
 
+class TransitionDurationLessThanEqualStateValueMixed(Atom):
+    """
+    This class models the atom (duration(t) <= v)
+    for v a value given by a state.
+    """
+
+    def __init__(self, transition, state, name):
+        self._lhs = transition
+        self._rhs = state
+        self._rhs_name = name
+        self.verdict = None
+
+    def __repr__(self):
+        return "d(%s) <= (%s)(%s)" % (self._lhs, self._rhs, self._rhs_name)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is TransitionDurationLessThanEqualStateValueMixed:
+            return (self._lhs == other_atom._lhs and
+                    self._rhs == other_atom._rhs and
+                    self._rhs_name == other_atom._rhs_name)
+        else:
+            return False
+
+    def check(self, cummulative_state):
+        """
+        If either the RHS or LHS are None, we don't try to reach a truth value.
+        But if they are both not equal to None, we check for equality.
+        """
+        if cummulative_state.get(0) is None or cummulative_state.get(1) is None:
+            return None
+        else:
+            rhs_with_arithmetic = apply_arithmetic_stack(
+                self._rhs._arithmetic_stack,
+                cummulative_state[1][0][self._rhs_name]
+            )
+            return cummulative_state[0][0].total_seconds() <= rhs_with_arithmetic
+
+
 class TransitionDurationLessThanStateValueLengthMixed(Atom):
     """
     This class models the atom (duration(t) < v.length())
@@ -430,6 +675,44 @@ class TransitionDurationLessThanStateValueLengthMixed(Atom):
                 cummulative_state[1][0][self._rhs_name]
             )
             return cummulative_state[0][0].total_seconds() < rhs_with_arithmetic
+
+
+class TransitionDurationLessThanEqualStateValueLengthMixed(Atom):
+    """
+    This class models the atom (duration(t) < v.length())
+    for v a value given by a state.
+    """
+
+    def __init__(self, transition, state, name):
+        self._lhs = transition
+        self._rhs = state
+        self._rhs_name = name
+        self.verdict = None
+
+    def __repr__(self):
+        return "d(%s) <= (%s)(%s).length()" % (self._lhs, self._rhs, self._rhs_name)
+
+    def __eq__(self, other_atom):
+        if type(other_atom) is TransitionDurationLessThanEqualStateValueLengthMixed:
+            return (self._lhs == other_atom._lhs and
+                    self._rhs == other_atom._rhs and
+                    self._rhs_name == other_atom._rhs_name)
+        else:
+            return False
+
+    def check(self, cummulative_state):
+        """
+        If either the RHS or LHS are None, we don't try to reach a truth value.
+        But if they are both not equal to None, we check for equality.
+        """
+        if cummulative_state.get(0) is None or cummulative_state.get(1) is None:
+            return None
+        else:
+            rhs_with_arithmetic = apply_arithmetic_stack(
+                self._rhs._arithmetic_stack,
+                cummulative_state[1][0][self._rhs_name]
+            )
+            return cummulative_state[0][0].total_seconds() <= rhs_with_arithmetic
 
 
 class TimeBetweenInInterval(Atom):
@@ -500,6 +783,29 @@ class TimeBetweenInOpenInterval(Atom):
             duration = (cummulative_state[1][0]["time"] - cummulative_state[0][0]["time"]).total_seconds()
             result = self._interval[0] < duration < self._interval[1]
             return result
+
+def is_mixed_atom(atom):
+    """
+    Given an atom, check if its class is in the list of mixed atom classes.
+    :param atom:
+    :return: True or False.
+    """
+    mixed_atom_class_list = [
+        StateValueEqualToMixed,
+        StateValueLessThanStateValueMixed,
+        StateValueLessThanEqualStateValueMixed,
+        StateValueLengthLessThanStateValueLengthMixed,
+        StateValueLengthLessThanEqualStateValueLengthMixed,
+        TransitionDurationLessThanTransitionDurationMixed,
+        TransitionDurationLessThanEqualTransitionDurationMixed,
+        TransitionDurationLessThanStateValueMixed,
+        TransitionDurationLessThanEqualStateValueMixed,
+        TransitionDurationLessThanStateValueLengthMixed,
+        TransitionDurationLessThanEqualStateValueLengthMixed,
+        TimeBetweenInOpenInterval,
+        TimeBetweenInInterval
+    ]
+    return type(atom) in mixed_atom_class_list
 
 
 """
@@ -782,7 +1088,7 @@ class Checker(object):
         self.atom_to_observation = {}
         self.atom_to_program_path = {}
         self.atom_to_state_dict = {}
-        self.collapsing_atom = None
+        self.collapsing_atom_index = None
         self.collapsing_atom_sub_index = None
         self.sub_formulas = []
         # we use a tuple to record the instantiation time for each encountered bind variable
@@ -858,21 +1164,32 @@ class Checker(object):
         return "Monitor for formula %s:\n  timestamps: %s\n state: %s\n  verdict: %s" % (
             self._original_formula, str(self._monitor_instantiation_time), str(self._formula), self._formula.verdict)
 
-    def check_atom_truth_value(self, atom, value):
+    def check_atom_truth_value(self, atom, atom_index, atom_sub_index):
         """
-        Given an atom, an observation and, if the atom is mixed,
+        Given an atom (with index and sub-index), an observation and, if the atom is mixed,
         an indication of whether the observation is for the lhs or rhs
         """
-        check_value = atom.check(value)
-        #print("resulting truth value", check_value)
+        # take the initial verdict so we can check the difference after update
+        initial_verdict = self._formula.verdict
+        # check the value of the atom given the value observed
+        check_value = atom.check(self.atom_to_observation[atom_index])
+        # update the monitor accordingly based on the truth value given by the check
         if check_value == True:
             result = self.check(self._formula, atom)
         elif check_value == False:
             result = self.check(self._formula, lnot(atom))
         elif check_value == None:
-            # mixed atoms can still be unconclusive if only part of them has been given an observation
+            # mixed atoms can still be inconclusive if only part of them has been given an observation
             # in this case, the atom maintains state so no changes are required to the formula tree
             result = None
+        # record the new truth value for comparison
+        final_verdict = self._formula.verdict
+        # if the verdict has changed, then the atom/sub-atom indices we just used for the update
+        # are the collapsing ones
+        if initial_verdict != final_verdict:
+            # for each monitor, this branch can only ever be traversed once
+            self.collapsing_atom_index = atom_index
+            self.collapsing_atom_sub_index = atom_sub_index
         return result
 
     def process_atom_and_value(self, atom, observation_time, observation_end_time, value, atom_index, atom_sub_index,
@@ -889,115 +1206,18 @@ class Checker(object):
             self.atom_to_state_dict[atom_index] = {}
 
         if not (self.atom_to_observation[atom_index].get(atom_sub_index)):
-            self.atom_to_observation[atom_index][atom_sub_index] = \
+            self.atom_to_observation[atom_index][atom_sub_index] =\
                 (value, inst_point_id, observation_time, observation_end_time)
-            # self.atom_to_program_path[atom_index][atom_sub_index] = [v for v in program_path]
-            # we deal with integer indices now, so no need to copy a list
             self.atom_to_program_path[atom_index][atom_sub_index] = program_path
             self.atom_to_state_dict[atom_index][atom_sub_index] = state_dict
         else:
             # the observation has already been processed - no need to do anything
             return
 
-        initial_verdict = self._formula.verdict
-
-        result = self.check_atom_truth_value(atom, self.atom_to_observation[atom_index])
-
-        final_verdict = self._formula.verdict
-
-        if initial_verdict != final_verdict:
-            # for each monitor, this branch can only ever be traversed once
-            self.collapsing_atom = atom
-            self.collapsing_atom_sub_index = atom_sub_index
+        # check the truth value of the relevant atom based on the state that we've built up so far
+        result = self.check_atom_truth_value(atom, atom_index, atom_sub_index)
 
         return result
-
-    def check_optimised(self, symbol, force_monitor_update=False):
-        """
-        Given a symbol, find the formula occurrences that contain this symbol.
-        For each of the occurrences, replace the atom with the appropriate value (T or F).
-        Then loop up through the parents while each successive parent can be collapsed to a truth value.
-        """
-
-        if not (force_monitor_update) and not (self._formula.verdict is None):
-            return self._formula.verdict
-
-        if symbol in self.observed_atoms or lnot(symbol) in self.observed_atoms:
-            return
-        else:
-            self.observed_atoms.append(symbol)
-
-        # NOTE: BE AWARE THAT THE ALPHABET USED TO INITIALLY POPULATE _STATE DOES NOT INCLUDE NEGATIVES
-        # OF EVERY ATOM
-
-        # update state for the monitoring algorithm to use
-        self._state.set_state(symbol)
-
-        # temporary fix for Python 3 - the long term solution needs to be more robust
-        index_of_symbol_in_sub_formulas = self.sub_formulas.index(symbol)
-        if index_of_symbol_in_sub_formulas in self.atom_to_occurrence_map.keys():
-            positives = self.atom_to_occurrence_map.get(index_of_symbol_in_sub_formulas)
-        else:
-            positives = []
-
-        negatives = []
-
-        all_occurences = positives + negatives
-
-        for occurrence in all_occurences:
-            # find the position of the atom in the subformula
-            index_in_formula = 0
-            # if the formula to which this atom belongs is an atom,
-            # this can only happen when a formula consists of only an atom
-            if formula_is_atom(occurrence):
-                if formula_is_derived_from_atom(symbol):
-                    if formula_is_derived_from_atom(occurrence):
-                        self._formula.verdict = True
-                        return True
-                    else:
-                        self._formula.verdict = False
-                        return False
-                else:
-                    if formula_is_derived_from_atom(occurrence):
-                        self._formula.verdict = False
-                        return False
-                    else:
-                        self._formula.verdict = True
-                        return True
-            else:
-                for n in range(len(occurrence.operands)):
-                    if occurrence.operands[n] in [symbol, lnot(symbol)]:
-                        index_in_formula = n
-
-                # replace the atom we've observed accordingly
-                if formula_is_derived_from_atom(symbol):
-                    if formula_is_derived_from_atom(occurrence.operands[index_in_formula]):
-                        occurrence.operands[index_in_formula] = 'T'
-                    else:
-                        occurrence.operands[index_in_formula] = 'F'
-                else:
-                    if formula_is_derived_from_atom(occurrence.operands[index_in_formula]):
-                        occurrence.operands[index_in_formula] = 'F'
-                    else:
-                        occurrence.operands[index_in_formula] = 'T'
-
-                # iterate up through the tree, collapsing sub-formulas to truth values as far as we can
-                current_formula = occurrence
-                current_collapsed_value = collapsed_formula(current_formula)
-                # iterate while the current formula is collapsible to a truth value
-                while not (current_collapsed_value is None):
-                    if not (current_formula.parent_formula is None):
-                        current_formula.parent_formula.operands[
-                            current_formula.index_in_parent] = current_collapsed_value
-                        current_formula = current_formula.parent_formula
-                        current_collapsed_value = collapsed_formula(current_formula)
-                    else:
-                        # we have collapsed the root to a truth value
-                        truth_value_to_boolean = {'T': True, 'F': False, '?': None}
-                        self._formula.verdict = truth_value_to_boolean[current_collapsed_value]
-                        return self._formula.verdict
-
-        return None
 
     def check(self, formula, symbol, level=0):
         """
@@ -1021,86 +1241,96 @@ class Checker(object):
 
         sub_verdict = None
 
-        indent = "    " * level
-
+        # we go through the possible forms of the formula
         if type(formula) is LogicalAnd or type(formula) is LogicalOr:
-            # first check if the disjunction or conjunction can be immediately
-            # collapsed to a truth value
-            if type(formula) is LogicalAnd:
-                if 'F' in formula.operands:
-                    if level == 0:
-                        self._formula.verdict = False
-                    return False
-            elif type(formula) is LogicalOr:
-                if 'T' in formula.operands:
-                    if level == 0:
-                        self._formula.verdict = True
-                    return True
-
-            if len(set(formula.operands)) == 1:
-                if formula.operands[0] == 'T':
-                    if level == 0:
-                        self._formula.verdict = True
-                    return True
-                elif formula.operands[0] == 'F':
-                    if level == 0:
-                        self._formula.verdict = False
-                    return False
 
             # if not, iterate through the operands
             for n in range(len(formula.operands)):
                 if not (formula.operands[n] in ['T', 'F']):
+
+                    # recursive base case - we have an atom
                     if formula_is_atom(formula.operands[n]):
+
+                        # deal with negation
+
                         if ((formula_is_derived_from_atom(formula.operands[n]) and formula_is_derived_from_atom(
                                 symbol) and formula.operands[n] == symbol)
                                 or (type(formula.operands[n]) is LogicalNot and type(symbol) is LogicalNot and
                                     formula.operands[n] == symbol)):
                             formula.operands[n] = 'T'
                             if type(formula) is LogicalOr:
-                                formula = 'T'
+                                # we have at least one true subformula, so we can return true
                                 if level == 0:
                                     self._formula.verdict = True
                                 return True
                             elif type(formula) is LogicalAnd:
                                 formula.true_clauses += 1
                                 if formula.true_clauses == len(formula.operands):
-                                    formula = 'T'
+                                    # all subformulas are true, so we can return true
                                     if level == 0:
                                         self._formula.verdict = True
                                     return True
+
                         elif ((formula_is_derived_from_atom(formula.operands[n]) and type(symbol) is LogicalNot and
                                formula.operands[n] == symbol.operand)
                               or (type(formula.operands[n]) is LogicalNot and formula.operands[n].operand == symbol)):
                             formula.operands[n] = 'F'
                             if type(formula) is LogicalAnd:
-                                formula = 'F'
+                                # at least one subformula is false, so return false
                                 if level == 0:
                                     self._formula.verdict = False
                                 return False
+                            elif type(formula) is LogicalOr:
+                                if len(set(formula.operands)) == 1:
+                                    # for disjunction, we only care about false
+                                    if formula.operands[0] == 'F':
+                                        if level == 0:
+                                            self._formula.verdict = False
+                                        return False
+
                     else:
+
+                        # recursive on the subformula
+
                         sub_verdict = self.check(formula.operands[n], symbol, level + 1)
+
+                        # in the cases here, we don't care about None, since that means no truth value
+                        # has been reached in the subformula
+
                         if sub_verdict:
+
                             formula.operands[n] = 'T'
                             if type(formula) is LogicalOr:
-                                formula = 'T'
+                                # we have at least one true subformula, so we can return true
                                 if level == 0:
                                     self._formula.verdict = True
                                 return True
                             elif type(formula) is LogicalAnd:
+                                # if all subformulas are true, we can return true
                                 formula.true_clauses += 1
                                 if formula.true_clauses == len(formula.operands):
-                                    formula = 'T'
                                     if level == 0:
                                         self._formula.verdict = True
                                     return True
-                        elif sub_verdict == False:  # explicitly not including None
+
+                        elif sub_verdict is False:  # explicitly not including None
+
                             formula.operands[n] = 'F'
-                            if type(formula) is LogicalAnd:
-                                formula = 'F'
+                            if type(formula) is LogicalOr:
+                                # check for all false
+                                if len(set(formula.operands)) == 1:
+                                    if formula.operands[0] == 'F':
+                                        if level == 0:
+                                            self._formula.verdict = False
+                                        return False
+                            elif type(formula) is LogicalAnd:
                                 if level == 0:
                                     self._formula.verdict = False
                                 return False
+
+            # we couldn't make any decisions based on subformulas, so return sub_verdict
             return sub_verdict
+
         elif type(formula) is LogicalNot:
             if formula_is_derived_from_atom(formula.operand) and formula.operand == symbol:
                 if level == 0:
@@ -1110,11 +1340,10 @@ class Checker(object):
                 if level == 0:
                     self._formula.verdict = True
                 return True
+
         elif formula_is_derived_from_atom(formula):
-            #print("simple formula")
             if formula == symbol:
                 if level == 0:
-                    #print("reached true verdict")
                     self._formula.verdict = True
                 return True
             else:

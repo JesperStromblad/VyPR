@@ -12,15 +12,89 @@ Each possible atom has its own class, ie:
 StateValueInInterval - models the atom (s(x) in I) for some state s, a name x and an interval (list) I.
 TransitionDurationInInterval - models the atom (d(delta t) in I) for some transition delta t and an interval (list) I.
 
-Atoms are generated once states or transitions have been described by calling 
-
 """
 
 import inspect
 # be careful with versions here...
 from collections import OrderedDict
+import ast
 
 from VyPR.monitor_synthesis import formula_tree
+
+"""
+Function selection.
+"""
+
+
+class Module(object):
+    """
+    Used to point to a module/function in specifications.
+    """
+
+    def __init__(self, module_name):
+        self._module_name = module_name
+
+    def Function(self, function_name):
+        self._function_name = function_name
+        return self
+
+
+class Functions(object):
+    """
+    Given as keys in the initial specification config file dictionary by the developer.
+    """
+
+    def __init__(self, **parameter_dictionary):
+        """
+        Parameters given here, with their values, act as criteria to select a set of functions in a project.
+        Multiple parameter values will be used in conjunction.
+        """
+        # set the parameters given as object parameters that can be used in the search performed by instrumentation
+        self.criteria_dict = parameter_dictionary
+
+    def is_satisfied_by(self, function_ast, scfg):
+        """
+        Given a Function AST, decide whether the criteria defined by this instance are satisfied.
+        :param function_ast:
+        :param scfg:
+        :return: True or False
+        """
+        for criterion_name in self.criteria_dict:
+            if criterion_name == "containing_call_of":
+                edges = scfg.edges
+                call_found = False
+                for edge in edges:
+                    if edge._operates_on and self.criteria_dict[criterion_name] in edge._operates_on:
+                        call_found = True
+                # if no call was found, this criterion has not been met,
+                # so return False because the conjunction is broken
+                if not call_found:
+                    return False
+            elif criterion_name == "containing_change_of":
+                vertices = scfg.vertices
+                change_found = False
+                for vertex in vertices:
+                    if self.criteria_dict[criterion_name] in vertex._name_changed:
+                        change_found = True
+                    elif hasattr(vertex, "_structure_obj"):
+                        if type(vertex._structure_obj) is ast.For:
+                            if type(vertex._structure_obj.target) is ast.Tuple:
+                                if (self.criteria_dict[criterion_name] in
+                                        map(lambda item: item.id, vertex._structure_obj.target)):
+                                    change_found = True
+                            else:
+                                if self.criteria_dict[criterion_name] == vertex._structure_obj.target.id:
+                                    change_found = True
+                # if no change was found, this criterion has not been met,
+                # so return False because the conjunction is broken
+                if not (change_found):
+                    return False
+        # we found no evidence against satisfaction, so return True
+        return True
+
+    def __repr__(self):
+        return "<%s>" % str(self.criteria_dict)
+
 
 """
 General structure-building classes and methods.
@@ -95,7 +169,7 @@ class Forall(object):
         if self._formula is None:
             return "Forall(%s)" % self.bind_variables
         else:
-            return "Forall(%s).Formula(%s)" % \
+            return "Forall(%s).Check(%s)" % \
                    (self.bind_variables, self.get_formula_instance())
 
     def Forall(self, **bind_variable):
@@ -226,6 +300,54 @@ def requires_state_or_transition(obj):
     return type(obj) in [StateValue, StateValueLength]
 
 
+class PossiblyNumeric(object):
+    """
+    Models a quantity that one can perform arithmetic on.
+    Should be inherited by any class that wants a user to be able to perform arithmetic with it.
+    """
+
+    def __mul__(self, value):
+        """
+        Given a constant (we assume this for now),
+        add an object to the arithmetic stack so it can be applied
+        later when values are checked.
+        """
+        if type(value) in [int, float]:
+            base_variable = composition_sequence_from_value([self._state], self._state)[-1]
+            if base_variable._arithmetic_build:
+                self._state._arithmetic_stack.append(formula_tree.ArithmeticMultiply(value))
+            return self
+        else:
+            raise Exception("Value used to multiply quantity %s must be of type int or float." % self)
+
+    def __add__(self, value):
+        if type(value) in [int, float]:
+            base_variable = composition_sequence_from_value([self._state], self._state)[-1]
+            if base_variable._arithmetic_build:
+                self._state._arithmetic_stack.append(formula_tree.ArithmeticAdd(value))
+            return self
+        else:
+            raise Exception("Value added to quantity %s must be of type int or float." % self)
+
+    def __sub__(self, value):
+        if type(value) in [int, float]:
+            base_variable = composition_sequence_from_value([self._state], self._state)[-1]
+            if base_variable._arithmetic_build:
+                self._state._arithmetic_stack.append(formula_tree.ArithmeticSubtract(value))
+            return self
+        else:
+            raise Exception("Value subtracted from quantity %s must be of type int or float." % self)
+
+    def __truediv__(self, value):
+        if type(value) in [int, float] and value != 0:
+            base_variable = composition_sequence_from_value([self._state], self._state)[-1]
+            if base_variable._arithmetic_build:
+                self._state._arithmetic_stack.append(formula_tree.ArithmeticTrueDivide(value))
+            return self
+        else:
+            raise Exception("Value used to divide quantity %s must be non-zero and of type int or float." % self)
+
+
 class StaticState(object):
     """
     Models a state attained by the monitored program at runtime.
@@ -244,7 +366,11 @@ class StaticState(object):
         self._arithmetic_build = False
 
     def __call__(self, name):
-        return StateValue(self, name)
+        if type(name) is str:
+            return StateValue(self, name)
+        else:
+            raise Exception("Value given to state '%s' must be of type str, not %s." % (self, name.__class__.__name__))
+
 
     def next_call(self, function, record=None):
         """
@@ -252,15 +378,19 @@ class StaticState(object):
         points if there is nesting.  It is a list of variable
         values to record at the start of the next call to function.
         """
-        return NextStaticTransition(self, function, record=record)
+        if type(function) is str:
+            return NextStaticTransition(self, function, record=record)
+        else:
+            raise Exception("Value given to (%s).next_call must be of type str, not %s." %
+                            (self, function.__class__.__name__))
 
     def __repr__(self):
         if self._required_binding:
-            return "%s = StaticState(changes=%s, uses=%s)" % \
+            return "%s = changes('%s', uses=%s)" % \
                    (self._bind_variable_name, self._name_changed,
                     self._required_binding)
         else:
-            return "%s = StaticState(changes=%s)" % \
+            return "%s = changes('%s')" % \
                    (self._bind_variable_name, self._name_changed)
 
     def __eq__(self, other):
@@ -307,7 +437,7 @@ class DestinationStaticState(StaticState):
                 self._incoming_transition == other._incoming_transition)
 
 
-class StateValue(object):
+class StateValue(PossiblyNumeric):
     """
     Models the value to which some state maps a program variable.
     """
@@ -320,11 +450,63 @@ class StateValue(object):
         """
         Generates an atom.
         """
-        return formula_tree.StateValueInInterval(
-            self._state,
-            self._name,
-            interval
-        )
+        if type(interval) is list and len(interval) == 2:
+            return formula_tree.StateValueInInterval(
+                self._state,
+                self._name,
+                interval
+            )
+        elif type(interval) is tuple and len(interval) == 2:
+            return formula_tree.StateValueInOpenInterval(
+                self._state,
+                self._name,
+                interval
+            )
+        else:
+            raise Exception("Value of type %s given to _in operator with %s('%s') is not supported." %
+                            (interval.__class__.__name__, self._state, self._name))
+
+    def __lt__(self, value):
+        """
+        Generates an atom.
+        """
+        if type(value) is int:
+            return formula_tree.StateValueInOpenInterval(
+                self._state,
+                self._name,
+                [0, value]
+            )
+        elif type(value) is StateValue:
+            return formula_tree.StateValueLessThanEqualStateValueMixed(
+                self._state,
+                self._name,
+                value._state,
+                value._name
+            )
+        else:
+            raise Exception("Value of type %s given to < comparison with %s('%s') is not supported." %
+                            (value.__class__.__name__, self._state, self._name))
+
+    def __le__(self, value):
+        """
+        Generates an atom.
+        """
+        if type(value) is int:
+            return formula_tree.StateValueInInterval(
+                self._state,
+                self._name,
+                [0, value]
+            )
+        elif type(value) is StateValue:
+            return formula_tree.StateValueLessThanStateValueMixed(
+                self._state,
+                self._name,
+                value._state,
+                value._name
+            )
+        else:
+            raise Exception("Value of type %s given to < comparison with %s('%s') is not supported." %
+                            (value.__class__.__name__, self._state, self._name))
 
     def equals(self, value):
         """
@@ -353,42 +535,8 @@ class StateValue(object):
     def type(self):
         return StateValueType(self._state, self._name)
 
-    """
-    Arithmetic overloading is useful for mixed atoms
-    when observed quantities are being compared to each other.
-    """
 
-    def __mul__(self, value):
-        """
-        Given a constant (we assume this for now),
-        add an object to the arithmetic stack so it can be applied
-        later when values are checked.
-        """
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticMultiply(value))
-        return self
-
-    def __add__(self, value):
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticAdd(value))
-        return self
-
-    def __sub__(self, value):
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticSubtract(value))
-        return self
-
-    def __truediv__(self, value):
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticTrueDivide(value))
-        return self
-
-
-class StateValueLength(object):
+class StateValueLength(PossiblyNumeric):
     """
     Models the length being measured of a value given by a state.
     """
@@ -401,11 +549,21 @@ class StateValueLength(object):
         """
         Generates an atom.
         """
-        return formula_tree.StateValueLengthInInterval(
-            self._state,
-            self._name,
-            interval
-        )
+        if type(interval) is list and len(interval) == 2:
+            return formula_tree.StateValueLengthInInterval(
+                self._state,
+                self._name,
+                interval
+            )
+        elif type(interval) is tuple and len(interval) == 2:
+            return formula_tree.StateValueLengthInOpenInterval(
+                self._state,
+                self._name,
+                interval
+            )
+        else:
+            raise Exception("Value of type %s given to _in comparison with %s('%s').length() is not supported." %
+                            (interval.__class__.__name__, self._state, self._name))
 
     """
     Overload comparison operators.
@@ -415,50 +573,43 @@ class StateValueLength(object):
         """
         Generates an atom.
         """
-        # TODO: extend for multiple types
-        if type(value) is StateValueLength:
-            # the RHS of the comparison requires observation of another state or transition
-            # so we use a different class to deal with this
+        if type(value) is int:
+            return formula_tree.StateValueLengthInOpenInterval(
+                self._state,
+                self._name,
+                [0, value]
+            )
+        elif type(value) is StateValueLength:
             return formula_tree.StateValueLengthLessThanStateValueLengthMixed(
                 self._state,
                 self._name,
                 value._state,
                 value._name
             )
+        else:
+            raise Exception("Value of type %s given to _in comparison with %s('%s').length() is not supported." %
+                            (value.__class__.__name__, self._state, self._name))
 
-    """
-    Arithmetic overloading is useful for mixed atoms
-    when observed quantities are being compared to each other.
-    """
-
-    def __mul__(self, value):
+    def __le__(self, value):
         """
-        Given a constant (we assume this for now),
-        add an object to the arithmetic stack so it can be applied
-        later when values are checked.
+        Generates an atom.
         """
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticMultiply(value))
-        return self
-
-    def __add__(self, value):
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticAdd(value))
-        return self
-
-    def __sub__(self, value):
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticSubtract(value))
-        return self
-
-    def __truediv__(self, value):
-        base_variable = composition_sequence_from_value([self._state], self._state)[-1]
-        if base_variable._arithmetic_build:
-            self._state._arithmetic_stack.append(formula_tree.ArithmeticTrueDivide(value))
-        return self
+        if type(value) is int:
+            return formula_tree.StateValueLengthInInterval(
+                self._state,
+                self._name,
+                [0, value]
+            )
+        elif type(value) is StateValueLength:
+            return formula_tree.StateValueLengthLessThanEqualStateValueLengthMixed(
+                self._state,
+                self._name,
+                value._state,
+                value._name
+            )
+        else:
+            raise Exception("Value of type %s given to _in comparison with %s('%s').length() is not supported." %
+                            (value.__class__.__name__, self._state, self._name))
 
 
 class StateValueType(object):
@@ -501,7 +652,11 @@ class StaticTransition(object):
         record will only matter for the final instrumentation points if there is nesting.
         It is a list of variable values to record at the start of the next call to function.
         """
-        return NextStaticTransition(self, function, record=record)
+        if type(function) is str:
+            return NextStaticTransition(self, function, record=record)
+        else:
+            raise Exception("Value given to state '%s' must be of type str, not %s." %
+                            (self, function.__class__.__name__))
 
     def input(self):
         return SourceStaticState(self)
@@ -512,19 +667,19 @@ class StaticTransition(object):
     def __repr__(self):
         if self._required_binding:
             if self._record:
-                return "%s = StaticTransition(operates_on=%s, uses=%s, record=%s)" % \
+                return "%s = calls('%s', uses=%s, record=%s)" % \
                        (self._bind_variable_name, self._operates_on,
                         self._required_binding, str(self._record))
             else:
-                return "%s = StaticTransition(operates_on=%s, uses=%s)" % \
+                return "%s = calls('%s', uses=%s)" % \
                        (self._bind_variable_name, self._operates_on,
                         self._required_binding)
         else:
             if self._record:
-                return "%s = StaticTransition(operates_on=%s, record=%s)" % \
+                return "%s = calls('%s', record=%s)" % \
                        (self._bind_variable_name, self._operates_on, str(self._record))
             else:
-                return "%s = StaticTransition(operates_on=%s)" % \
+                return "%s = calls('%s')" % \
                        (self._bind_variable_name, self._operates_on)
 
     def __eq__(self, other):
@@ -557,7 +712,7 @@ class NextStaticTransition(StaticTransition):
                 self._operates_on == other._operates_on)
 
 
-class Duration(object):
+class Duration(PossiblyNumeric):
     """
     Models the duration of a transition.
     """
@@ -580,7 +735,8 @@ class Duration(object):
                 interval
             )
         else:
-            raise Exception("Duration predicate wasn't defined properly.")
+            raise Exception("Value of type %s given to _in comparison on %s is not supported." %
+                            (interval.__class__.__name__, self._transition))
 
     def __lt__(self, value):
         """
@@ -604,6 +760,44 @@ class Duration(object):
                 self._transition,
                 value._transition,
             )
+        elif type(value) in [int, float]:
+            return formula_tree.TransitionDurationInOpenInterval(
+                self._transition,
+                [0, value]
+            )
+        else:
+            raise Exception("Value of type %s given to < comparison on %s is not supported." %
+                            (value.__class__.__name__, self._transition))
+
+    def __le__(self, value):
+        """
+        Generates an atom.
+        """
+        if type(value) is StateValue:
+            return formula_tree.TransitionDurationLessThanEqualStateValueMixed(
+                self._transition,
+                value._state,
+                value._name
+            )
+        elif type(value) is StateValueLength:
+            return formula_tree.TransitionDurationLessThanEqualStateValueLengthMixed(
+                self._transition,
+                value._state,
+                value._name
+            )
+        elif type(value) is Duration:
+            return formula_tree.TransitionDurationLessThanEqualTransitionDurationMixed(
+                self._transition,
+                value._transition,
+            )
+        elif type(value) in [int, float]:
+            return formula_tree.TransitionDurationInInterval(
+                self._transition,
+                [0, value]
+            )
+        else:
+            raise Exception("Value of type %s given to <= comparison on %s is not supported." %
+                            (value.__class__.__name__, self._transition))
 
 
 """
@@ -641,8 +835,41 @@ class TimeBetweenStates(object):
                 interval
             )
         else:
-            raise Exception("TimeBetween predicate wasn't defined properly.")
+            raise Exception("Value of type %s given to _in comparison on %s is not supported." %
+                            (interval.__class__.__name__, self))
 
+    def __lt__(self, value):
+        """
+        Generates an atom.
+        """
+        if type(value) in [int, float]:
+            return formula_tree.TimeBetweenInOpenInterval(
+                self._lhs,
+                self._rhs,
+                [0, value]
+            )
+        else:
+            raise Exception("Value of type %s given to < comparison on %s is not supported." %
+                            (value.__class__.__name__, self))
+
+    def __le__(self, value):
+        """
+        Generates an atom.
+        """
+        if type(value) in [int, float]:
+            return formula_tree.TimeBetweenInInterval(
+                self._lhs,
+                self._rhs,
+                [0, value]
+            )
+        else:
+            raise Exception("Value of type %s given to <= comparison on %s is not supported." %
+                            (value.__class__.__name__, self))
+
+
+"""
+Utility functions to extract information from formulas.
+"""
 
 def composition_sequence_from_value(sequence, current_operator):
     while not (type(current_operator) in [StaticState, StaticTransition]):
@@ -672,13 +899,7 @@ def derive_composition_sequence(atom):
     else:
         current_operator = atom
 
-    if type(atom) in [formula_tree.StateValueEqualToMixed,
-                      formula_tree.StateValueLengthLessThanStateValueLengthMixed,
-                      formula_tree.TransitionDurationLessThanTransitionDurationMixed,
-                      formula_tree.TransitionDurationLessThanStateValueMixed,
-                      formula_tree.TransitionDurationLessThanStateValueLengthMixed,
-                      formula_tree.TimeBetweenInInterval,
-                      formula_tree.TimeBetweenInOpenInterval]:
+    if formula_tree.is_mixed_atom(atom):
 
         # atom is mixed - two composition sequences
 
@@ -699,11 +920,17 @@ def derive_composition_sequence(atom):
 
         if type(current_operator) == formula_tree.TransitionDurationInInterval:
             current_operator = current_operator._transition
+        if type(current_operator) == formula_tree.TransitionDurationInOpenInterval:
+            current_operator = current_operator._transition
         elif type(current_operator) == formula_tree.StateValueEqualTo:
             current_operator = current_operator._state
         elif type(current_operator) == formula_tree.StateValueLengthInInterval:
             current_operator = current_operator._state
+        elif type(current_operator) == formula_tree.StateValueLengthInOpenInterval:
+            current_operator = current_operator._state
         elif type(current_operator) == formula_tree.StateValueInInterval:
+            current_operator = current_operator._state
+        elif type(current_operator) == formula_tree.StateValueInOpenInterval:
             current_operator = current_operator._state
         elif type(current_operator) == formula_tree.StateValueTypeEqualTo:
             current_operator = current_operator._state

@@ -36,6 +36,8 @@ DRAW_GRAPHS = False
 BYTECODE_EXTENSION = ".pyc"
 vypr_module = "."
 VERIFICATION_INSTRUCTION = "verification.send_event"
+
+# OMAR: These are variables whose functionality is used during testing with VyPR.
 TEST_FRAMEWORK = False
 status = False
 
@@ -482,7 +484,7 @@ def is_verdict_server_reachable():
     except:
         return False
 
-
+# Omar: I have modified the configuration file to handle comments.
 def read_configuration(file):
     """
     Read in 'file', parse into an object and return.
@@ -987,8 +989,14 @@ def place_function_end_instruments(function_def, scfg, formula_hashes, instrumen
 
 
 
-
+# Omar: To instrument test modules. The idea is to add relevant intrumentation points in a test class
 def instrument_modules(module_list, formula_hash, instrument_function_qualifier):
+
+
+        """
+            This function takes the list of test modules and in each module adds a intrumentation point in setupClass as well as in each test case
+        """
+
 
         for module in module_list:
 
@@ -1024,19 +1032,17 @@ def instrument_modules(module_list, formula_hash, instrument_function_qualifier)
 
 def instrument_test_cases(test_ast, class_name, formula_hash, instrument_function_qualifier):
 
-        ## Adding imports first to the test cases
+        """
 
-        vypr_add_import = 'from test import vypr'
-#        datetime_import = 'from datetime import datetime as vypr_dt'
+        Adds instrumentation at the start of each test case and end of test case
+
+        """
+
+        vypr_add_import = 'from ' + VYPR_MODULE + ' import vypr'
 
         import_vypr_add_ast = ast.parse(vypr_add_import).body[0]
         import_vypr_add_ast.lineno = test_ast.body[0].lineno
         import_vypr_add_ast.col_offset = test_ast.body[0].col_offset
-
-
-#        datetime_import_ast = ast.parse(datetime_import).body[0]
-#        datetime_import_ast.lineno = test_ast.body[0].lineno
-#        datetime_import_ast.col_offset = test_ast.body[0].col_offset
 
         test_ast.body.insert(0, import_vypr_add_ast)
         test_ast.body.insert(0, datetime_import_ast)
@@ -1077,7 +1083,13 @@ def instrument_test_cases(test_ast, class_name, formula_hash, instrument_functio
 
 
 
-def get_test_modules(is_test_module , module = None):
+def get_test_classes(is_test_module, module = None):
+
+    """
+
+    Gets list of test classes from test module
+
+    """
 
 
     from os.path import dirname, abspath
@@ -1108,9 +1120,7 @@ def get_test_modules(is_test_module , module = None):
 
 def create_test_setclass_method(current_step, class_name):
     """
-    :param enable_normal_testing:   Checks whether the testing is "normal" of "flask" based.
-    :param current_step:            Contains the AST for the code
-    :param class_name:              Name of the test class
+    Adds instrumentation point in setupClass method - If its exists add the instruction at the first line, otherwise create setupClass method
     """
 
     setUp_found = False
@@ -1152,6 +1162,12 @@ def create_test_setclass_method(current_step, class_name):
 
 def if_file_is_test(name, status):
 
+
+   """
+   Checks whether the file is a test file. So that VyPR knows that it has to consider specific test case verification
+   """
+
+
    if status == False:
        return False
 
@@ -1169,6 +1185,11 @@ def if_file_is_test(name, status):
 
 
 def if_file_is_flask(name):
+
+    """
+    It is used to identify whether file is a flask so that we can measure time according i.e., flask based time or normal time
+    """
+
 
     file = open(name, 'r')
 
@@ -1877,7 +1898,7 @@ if __name__ == "__main__":
                 place_function_end_instruments(function_def, scfg, formula_hash, instrument_function_qualifier, is_flask)
 
                 if not SETUP_ONCE and status:
-                    test_modules = get_test_modules(is_test_module, module)
+                    test_modules = get_test_classes(is_test_module, module)
                     instrument_modules(test_modules, formula_hash, instrument_function_qualifier)
                     SETUP_ONCE = True
 
